@@ -112,6 +112,8 @@ async function api(path, opts) {
   return r.json();
 }
 function paint(state) {
+  window.STATE = state;
+  document.getElementById("prompt").disabled = !!state.paused;
   document.getElementById("store").textContent = state.store || "Hearth & Cable";
   document.getElementById("seats").textContent =
     `ShopHelp · ${state.agent} · supervisor ${state.supervisor}`;
@@ -172,6 +174,9 @@ async function send() {
   paint(await api("/demo/chat", {method: "POST", body: JSON.stringify({text})}));
 }
 async function play(scene) {
+  if (window.STATE && window.STATE.paused && scene.kind !== "claim") {
+    return;
+  }
   if (scene.kind === "claim") {
     paint(await api("/demo/claim", {method: "POST", body: JSON.stringify({claim: scene.prompt})}));
     return;

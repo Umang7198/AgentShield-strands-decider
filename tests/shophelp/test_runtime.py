@@ -49,6 +49,22 @@ def test_ungrounded_claim_is_flagged_on_the_tape() -> None:
     assert state["transcript"][-1]["role"] == "gate"
 
 
+def test_chat_while_paused_does_not_resume_with_a_string() -> None:
+    runtime = make(
+        [
+            ("get_order_status", {"order_id": "A1001"}),
+            ("issue_refund", {"order_id": "A1001", "amount": 40}),
+        ]
+    )
+    paused = runtime.chat("Yes, refund 40 dollars on A1001. I confirm.")
+    assert paused["paused"] is True
+    assert runtime.approvals.pending()
+    again = runtime.chat("and cancel it too")
+    assert again["paused"] is True
+    assert runtime.app.store.refunds == []
+    assert "Approve or deny" in str(again["reply"])
+
+
 def test_supported_claim_is_not_flagged() -> None:
     runtime = make(script={**GOOD, "claim": 0.92})
     state = runtime.check_claim("Your refund of $40 was issued.")

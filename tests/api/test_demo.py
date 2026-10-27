@@ -31,6 +31,28 @@ def test_desk_pages_and_state() -> None:
     assert len(state["scenes"]) == 10
 
 
+def test_chat_while_paused_returns_200() -> None:
+    desk = ApprovalDesk()
+    runtime = ShopHelpRuntime(
+        ScriptedModel(
+            [
+                ("get_order_status", {"order_id": "A1001"}),
+                ("issue_refund", {"order_id": "A1001", "amount": 40}),
+            ]
+        ),
+        DeciderChecker(FakeDeciderClient(GOOD)),
+        approvals=desk,
+    )
+    c = TestClient(create_app(desk, runtime=runtime))
+    first = c.post("/demo/chat", json={"text": "Refund 40 dollars on A1001, I confirm."})
+    assert first.status_code == 200
+    assert first.json()["paused"] is True
+    second = c.post("/demo/chat", json={"text": "now cancel it"})
+    assert second.status_code == 200
+    assert second.json()["paused"] is True
+    assert second.json()["board"]["refunds"] == []
+
+
 def test_claim_scene_and_reset() -> None:
     desk = ApprovalDesk()
     runtime = ShopHelpRuntime(

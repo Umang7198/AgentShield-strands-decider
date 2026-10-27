@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Callable
 from typing import Any
@@ -239,3 +240,11 @@ class TestTimeoutsAndRetries:
     def test_invalid_settings_rejected(self, kwargs: dict[str, Any]) -> None:
         with pytest.raises(ValueError):
             HttpDeciderClient(**kwargs)
+
+    def test_survives_a_new_event_loop_each_call(self) -> None:
+        # Strands and the demo each use asyncio.run(); a pooled client bound to the first loop
+        # used to raise RuntimeError: Event loop is closed on the next turn.
+        client = client_for(ok())
+        first = asyncio.run(client.ask("s", Q))
+        second = asyncio.run(client.ask("s", Q))
+        assert first.answers["consent"] == second.answers["consent"] == 0.8581

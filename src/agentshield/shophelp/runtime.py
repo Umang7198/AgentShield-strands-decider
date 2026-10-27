@@ -139,6 +139,14 @@ class ShopHelpRuntime:
         if not cleaned:
             return self.state()
         with self._lock:
+            if self.approvals.pending():
+                note = (
+                    f"Paused for {SUPERVISOR_NAME}. Approve or deny the pending call "
+                    "before sending another message."
+                )
+                self.transcript.append({"role": "user", "text": cleaned})
+                self.transcript.append({"role": "system", "text": note})
+                return self.state(paused=True, reply=note)
             self.transcript.append({"role": "user", "text": cleaned})
             result = self.app.agent(cleaned)
             return self._after_turn(result)
@@ -195,7 +203,15 @@ class ShopHelpRuntime:
         messages = messages_from_strands(self.app.agent.messages)
         if include_last_assistant and messages and messages[-1].role == "assistant":
             messages = messages[:-1]
-        verdict = _await(self.app.shield.evaluate_claim(claim, messages, self.app.handler.session))
+        try:
+            verdict = _await(
+                self.app.shield.evaluate_claim(claim, messages, self.app.handler.session)
+            )
+        except Exception as exc:
+            self.transcript.append(
+                {"role": "gate", "text": f"Claim check failed ({type(exc).__name__}): {exc}"}
+            )
+            return
         self._on_verdict(verdict)
         if verdict.decision.outcome is Outcome.ALLOW:
             return

@@ -79,12 +79,19 @@ class HttpDeciderClient:
         if max_retries < 0:
             raise ValueError("max_retries must not be negative")
         self._max_retries = max_retries
-        self._http = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"), timeout=timeout_s, transport=transport
+        self._base_url = base_url.rstrip("/")
+        self._timeout_s = timeout_s
+        self._transport = transport
+
+    def _client(self) -> httpx.AsyncClient:
+        # A new client per request so we never reuse sockets bound to a closed asyncio loop.
+        # Strands, FastAPI and the demo each call asyncio.run() on their own loop.
+        return httpx.AsyncClient(
+            base_url=self._base_url, timeout=self._timeout_s, transport=self._transport
         )
 
     async def aclose(self) -> None:
-        await self._http.aclose()
+        return None
 
     async def __aenter__(self) -> Self:
         return self
@@ -113,7 +120,8 @@ class HttpDeciderClient:
         last_error: Exception | None = None
         for _ in range(self._max_retries + 1):
             try:
-                response = await self._http.post(ENDPOINT, json=payload)
+                async with self._client() as http:
+                    response = await http.post(ENDPOINT, json=payload)
             except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
                 last_error = exc
                 continue
