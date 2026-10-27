@@ -75,6 +75,10 @@ class Shield:
         self._redactor = redactor or Redactor()
         self._telemetry = telemetry or Telemetry()
 
+    @property
+    def agent_id(self) -> str:
+        return self._agent_id
+
     async def evaluate(
         self,
         call: ToolCall,

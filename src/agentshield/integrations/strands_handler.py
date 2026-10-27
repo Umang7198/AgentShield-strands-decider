@@ -10,7 +10,8 @@ Outcome mapping:
 ====================  ===========================================================
 ALLOW                 ``Proceed``: the tool runs.
 CLARIFY               ``Guide``: the tool is cancelled and the model is told what to ask.
-REQUIRE_APPROVAL      ``Confirm``: the agent pauses (interrupt) until a human answers.
+REQUIRE_APPROVAL      Pauses for a human. With an ``ApprovalDesk``, the review UI/API
+                      resume the agent; without one, Strands ``Confirm`` is used.
 BLOCK                 ``Deny``: the tool is cancelled with the reason.
 ====================  ===========================================================
 
@@ -24,8 +25,11 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from strands.hooks.events import AfterToolCallEvent, BeforeToolCallEvent
+from strands.interrupt import InterruptException
 from strands.interventions import Confirm, Deny, Guide, InterventionHandler, OnError, Proceed
 
+from agentshield.approvals.desk import ApprovalDesk, interrupt_was_yes
+from agentshield.approvals.models import Approval, ApprovalStatus
 from agentshield.core.models import CheckKind, Decision, Outcome, ToolCall
 from agentshield.decider.state import Message
 from agentshield.pipeline import Shield, Verdict
@@ -43,11 +47,13 @@ class AgentShieldHandler(InterventionHandler):
         *,
         on_verdict: VerdictListener | None = None,
         facts: FactMap | None = None,
+        approvals: ApprovalDesk | None = None,
     ) -> None:
         self._shield = shield
         self.session = session or SessionState("default")
         self._on_verdict = on_verdict
         self._facts = facts
+        self._approvals = approvals
 
     @property
     def name(self) -> str:
@@ -68,11 +74,48 @@ class AgentShieldHandler(InterventionHandler):
         call = ToolCall(
             name=tool_use["name"], arguments=arguments, tool_use_id=tool_use.get("toolUseId")
         )
+        if self._approvals is not None:
+            existing = self._approvals.by_tool_use(call.tool_use_id)
+            if existing is not None:
+                return self._resume_approval(event, existing)
         messages = messages_from_strands(event.agent.messages, exclude_tool_use_id=call.tool_use_id)
         verdict = await self._shield.evaluate(call, messages, self.session)
         if self._on_verdict is not None:
             self._on_verdict(verdict)
+        if verdict.decision.outcome is Outcome.REQUIRE_APPROVAL and self._approvals is not None:
+            return self._request_approval(event, verdict, messages)
         return to_action(verdict.decision, call)
+
+    def _request_approval(
+        self, event: BeforeToolCallEvent, verdict: Verdict, messages: Sequence[Message]
+    ) -> Proceed | Deny:
+        desk = self._approvals
+        assert desk is not None
+        rec = desk.submit(verdict, self.session, messages, agent_id=self._shield.agent_id)
+        return self._interrupt_for(event, rec)
+
+    def _resume_approval(self, event: BeforeToolCallEvent, rec: Approval) -> Proceed | Deny:
+        return self._interrupt_for(event, rec)
+
+    def _interrupt_for(self, event: BeforeToolCallEvent, rec: Approval) -> Proceed | Deny:
+        desk = self._approvals
+        assert desk is not None
+        try:
+            response = event.interrupt(self.name, reason=rec.prompt)
+        except InterruptException as exc:
+            desk.bind_interrupt(rec.id, exc.interrupt.id)
+            raise
+        approved = interrupt_was_yes(response)
+        if rec.status is ApprovalStatus.PENDING:
+            rec = desk.record(
+                rec.id,
+                ApprovalStatus.APPROVED if approved else ApprovalStatus.DENIED,
+                by="interrupt",
+            )
+        if approved and rec.status is ApprovalStatus.APPROVED:
+            return Proceed(reason=f"Approved by {rec.resolved_by}")
+        who = rec.resolved_by or "human"
+        return Deny(reason=f"Denied by {who}")
 
     def after_tool_call(self, event: AfterToolCallEvent, **kwargs: Any) -> Proceed:
         # Quotas ("max 3 refunds") count only calls that really ran, not blocked ones.

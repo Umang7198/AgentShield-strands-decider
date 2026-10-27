@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from agentshield.approvals import ApprovalDesk, ApprovalStatus
 from agentshield.audit import MemoryAuditLog
 from agentshield.core import DecisionSource, Outcome
 from agentshield.decider import DeciderChecker, FakeDeciderClient
@@ -16,6 +17,7 @@ def run(
     *,
     script: dict[str, float] | None = None,
     prompt: str = "help me",
+    desk: ApprovalDesk | None = None,
 ) -> Any:
     log = MemoryAuditLog()
     app = build_shophelp(
@@ -23,6 +25,7 @@ def run(
         DeciderChecker(FakeDeciderClient(GOOD if script is None else script)),
         store=ShopHelpStore.seed(),
         sinks=[log],
+        approvals=desk,
     )
     result = app.agent(prompt)
     return app, result, log
@@ -123,3 +126,37 @@ class TestForbiddenAndConsent:
         app, _, _ = run([("cancel_order", {"order_id": "A2002"})])
         assert app.store.get_order("A2002")["status"] == "cancelled"
         assert app.handler.session.context().prior_calls == {"cancel_order": 1}
+
+
+class TestHumanApproval:
+    def test_approving_a_refund_lets_it_run(self) -> None:
+        desk = ApprovalDesk()
+        app, result, _ = run(
+            [
+                ("get_order_status", {"order_id": "A1001"}),
+                ("issue_refund", {"order_id": "A1001", "amount": 40}),
+            ],
+            desk=desk,
+        )
+        assert result.stop_reason == "interrupt"
+        pending = desk.pending()
+        assert len(pending) == 1
+        assert pending[0].tool == "issue_refund"
+        assert pending[0].interrupt_id
+        rec, _ = desk.approve(pending[0].id, by="alice")
+        assert rec.status is ApprovalStatus.APPROVED
+        assert rec.resolved_by == "alice"
+        assert app.store.refunds == [{"order_id": "A1001", "amount": 40.0}]
+
+    def test_denying_a_refund_leaves_the_store_untouched(self) -> None:
+        desk = ApprovalDesk()
+        app, _, _ = run(
+            [
+                ("get_order_status", {"order_id": "A1001"}),
+                ("issue_refund", {"order_id": "A1001", "amount": 40}),
+            ],
+            desk=desk,
+        )
+        desk.deny(desk.pending()[0].id, by="bob", note="too risky")
+        assert app.store.refunds == []
+        assert desk.query(status=ApprovalStatus.DENIED)[0].note == "too risky"

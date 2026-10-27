@@ -52,6 +52,12 @@ class Telemetry:
             "agentshield.check.p_ok",
             description="p_ok of each Decider check (for calibration).",
         )
+        self._approvals = meter.create_counter(
+            "agentshield.approvals", description="Human approval resolutions."
+        )
+        self._approval_wait = meter.create_histogram(
+            "agentshield.approval.wait", unit="ms", description="Time spent waiting for a human."
+        )
 
     def record(self, audit: AuditRecord, span: Span | None = None) -> None:
         labels: dict[str, Any] = {
@@ -70,6 +76,11 @@ class Telemetry:
             self._p_ok.record(check.p_ok, {"kind": check.kind.value})
         if span is not None:
             annotate_span(span, audit)
+
+    def record_approval(self, result: str, wait_ms: float) -> None:
+        labels = {"result": result}
+        self._approvals.add(1, labels)
+        self._approval_wait.record(wait_ms, labels)
 
 
 def annotate_span(span: Span, audit: AuditRecord) -> None:

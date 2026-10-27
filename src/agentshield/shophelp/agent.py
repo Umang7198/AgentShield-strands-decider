@@ -9,6 +9,7 @@ from typing import Any
 
 from strands import Agent
 
+from agentshield.approvals.desk import ApprovalDesk
 from agentshield.audit.store import AuditSink
 from agentshield.decider.checker import DeciderChecker
 from agentshield.integrations.strands_handler import AgentShieldHandler
@@ -48,6 +49,7 @@ class ShopHelpApp:
     handler: AgentShieldHandler
     store: ShopHelpStore
     shield: Shield
+    approvals: ApprovalDesk | None = None
 
 
 def build_shophelp(
@@ -58,6 +60,7 @@ def build_shophelp(
     store: ShopHelpStore | None = None,
     sinks: Sequence[AuditSink] = (),
     on_verdict: Callable[[Verdict], None] | None = None,
+    approvals: ApprovalDesk | None = None,
 ) -> ShopHelpApp:
     """A gated ShopHelp agent. ``model`` is any Strands model (live or scripted)."""
     store = store or ShopHelpStore.seed()
@@ -73,6 +76,7 @@ def build_shophelp(
         session,
         on_verdict=on_verdict,
         facts=SHOPHELP_FACTS,
+        approvals=approvals,
     )
     agent = Agent(
         model=model,
@@ -81,4 +85,8 @@ def build_shophelp(
         system_prompt=SYSTEM_PROMPT,
         callback_handler=None,
     )
-    return ShopHelpApp(agent=agent, handler=handler, store=store, shield=shield)
+    if approvals is not None:
+        approvals.register_agent(session.session_id, agent)
+    return ShopHelpApp(
+        agent=agent, handler=handler, store=store, shield=shield, approvals=approvals
+    )

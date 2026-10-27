@@ -34,4 +34,4 @@ llm-check:
 
 # Interactive ShopHelp agent (needs .env; Decider at DECIDER_URL unless --fake-decider).
 demo:
-	python scripts/shophelp_demo.py
+	python scripts/shophelp_demo.py --port 8080
