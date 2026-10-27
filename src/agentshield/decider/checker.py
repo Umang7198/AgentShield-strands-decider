@@ -56,7 +56,7 @@ class DeciderChecker:
         messages: Sequence[Message],
         *,
         skip_args: Collection[str] = (),
-        include_premature: bool = True,
+        include_premature: bool = False,
     ) -> CheckRun:
         state = build_state(messages, call, self._budget)
         plan = build_call_questions(

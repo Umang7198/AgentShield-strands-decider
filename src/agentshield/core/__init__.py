@@ -1,6 +1,6 @@
 """Core models, decision pipeline and decision matrix."""
 
-from agentshield.core.matrix import Thresholds, decide, fallback_decision, weakest
+from agentshield.core.matrix import KindThresholds, Thresholds, decide, fallback_decision, weakest
 from agentshield.core.models import (
     CheckKind,
     CheckResult,
@@ -16,6 +16,7 @@ __all__ = [
     "CheckResult",
     "Decision",
     "DecisionSource",
+    "KindThresholds",
     "Outcome",
     "RiskTier",
     "Thresholds",

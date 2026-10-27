@@ -2,6 +2,7 @@ import pytest
 
 from agentshield.core import CheckKind, Outcome, RiskTier, ToolCall, decide, fallback_decision
 from agentshield.decider import (
+    QUESTION_SET_VERSION,
     DeciderChecker,
     DeciderTimeout,
     FakeDeciderClient,
@@ -25,9 +26,8 @@ class TestRun:
             (CheckKind.ARGUMENT_GROUNDING, "order_id"),
             (CheckKind.ARGUMENT_GROUNDING, "amount"),
             (CheckKind.CONSENT, None),
-            (CheckKind.PREMATURE_ACTION, None),
         ]
-        assert [c.p_yes for c in run.checks] == [0.97, 0.97, 0.97, 0.02]
+        assert [c.p_yes for c in run.checks] == [0.97, 0.97, 0.97]
 
     async def test_sends_one_request_containing_the_conversation_and_the_call(self) -> None:
         fake = FakeDeciderClient(GROUNDED)
@@ -36,11 +36,11 @@ class TestRun:
         sent = fake.calls[0]
         assert "My order A123 arrived damaged." in sent.state
         assert "issue_refund(" in sent.state
-        assert set(sent.questions) == {"arg:order_id", "arg:amount", "consent", "premature"}
+        assert set(sent.questions) == {"arg:order_id", "arg:amount", "consent"}
 
     async def test_run_carries_audit_information(self) -> None:
         run = await DeciderChecker(FakeDeciderClient(GROUNDED)).check_call(REFUND, CHAT)
-        assert run.question_set_version == "v1"
+        assert run.question_set_version == QUESTION_SET_VERSION
         assert run.model == "fake-decider"
         assert run.wall_latency_ms == 1.0
         assert run.server_latency_ms == 1.0
@@ -62,11 +62,16 @@ class TestRun:
         assert run.state.lost_evidence
         assert run.state.dropped_messages > 0
 
-    async def test_premature_check_can_be_disabled(self) -> None:
-        run = await DeciderChecker(FakeDeciderClient()).check_call(
-            REFUND, CHAT, include_premature=False
-        )
+    async def test_premature_check_is_off_by_default(self) -> None:
+        run = await DeciderChecker(FakeDeciderClient()).check_call(REFUND, CHAT)
         assert CheckKind.PREMATURE_ACTION not in {c.kind for c in run.checks}
+
+    async def test_premature_check_can_be_enabled(self) -> None:
+        run = await DeciderChecker(FakeDeciderClient(GROUNDED)).check_call(
+            REFUND, CHAT, include_premature=True
+        )
+        assert run.checks[-1].kind is CheckKind.PREMATURE_ACTION
+        assert run.checks[-1].p_yes == 0.02
 
     async def test_claim_check(self) -> None:
         fake = FakeDeciderClient({"claim": 0.12})
@@ -93,8 +98,12 @@ class TestErrors:
 class TestWithTheDecisionMatrix:
     """The evidence from the checker feeds the step-1 matrix. No model needed."""
 
-    async def decide(self, script: dict[str, float], risk: RiskTier) -> Outcome:
-        run = await DeciderChecker(FakeDeciderClient(script)).check_call(REFUND, CHAT)
+    async def decide(
+        self, script: dict[str, float], risk: RiskTier, *, premature: bool = False
+    ) -> Outcome:
+        run = await DeciderChecker(FakeDeciderClient(script)).check_call(
+            REFUND, CHAT, include_premature=premature
+        )
         return decide(risk, run.checks).outcome
 
     async def test_well_supported_low_risk_call_is_allowed(self) -> None:
@@ -116,7 +125,7 @@ class TestWithTheDecisionMatrix:
     async def test_agent_acting_prematurely_is_not_allowed(self) -> None:
         # premature p_yes=0.9 means "should clarify first": p_ok = 0.1, not enough to allow.
         script = {"premature": 0.9, **{k: v for k, v in GROUNDED.items() if k != "premature"}}
-        assert await self.decide(script, RiskTier.LOW) is Outcome.CLARIFY
+        assert await self.decide(script, RiskTier.LOW, premature=True) is Outcome.CLARIFY
 
     async def test_high_risk_always_goes_to_a_human_even_when_well_supported(self) -> None:
         assert await self.decide(GROUNDED, RiskTier.HIGH) is Outcome.REQUIRE_APPROVAL

@@ -7,33 +7,30 @@ REFUND = ToolCall(name="issue_refund", arguments={"order_id": "A123", "amount": 
 
 
 class TestCallQuestions:
-    def test_one_question_per_argument_plus_consent_and_premature(self) -> None:
+    def test_one_question_per_argument_plus_consent_by_default(self) -> None:
         plan = build_call_questions(REFUND)
-        assert [q.id for q in plan.questions] == [
-            "arg:order_id",
-            "arg:amount",
-            "consent",
-            "premature",
-        ]
+        assert [q.id for q in plan.questions] == ["arg:order_id", "arg:amount", "consent"]
         assert [q.kind for q in plan.questions] == [
             CheckKind.ARGUMENT_GROUNDING,
             CheckKind.ARGUMENT_GROUNDING,
             CheckKind.CONSENT,
-            CheckKind.PREMATURE_ACTION,
         ]
-        assert [q.subject for q in plan.questions] == ["order_id", "amount", None, None]
+        assert [q.subject for q in plan.questions] == ["order_id", "amount", None]
+
+    def test_premature_question_is_off_by_default_and_can_be_enabled(self) -> None:
+        default = [q.id for q in build_call_questions(REFUND).questions]
+        enabled = build_call_questions(REFUND, include_premature=True)
+        assert "premature" not in default
+        assert [q.id for q in enabled.questions][-1] == "premature"
+        assert enabled.questions[-1].kind is CheckKind.PREMATURE_ACTION
 
     def test_version_is_recorded(self) -> None:
         assert build_call_questions(REFUND).version == QUESTION_SET_VERSION
-
-    def test_premature_can_be_left_out(self) -> None:
-        ids = [q.id for q in build_call_questions(REFUND, include_premature=False).questions]
-        assert "premature" not in ids
-        assert "consent" in ids
+        assert QUESTION_SET_VERSION == "v2"
 
     def test_call_without_arguments_still_checks_consent(self) -> None:
         plan = build_call_questions(ToolCall(name="ping"))
-        assert [q.id for q in plan.questions] == ["consent", "premature"]
+        assert [q.id for q in plan.questions] == ["consent"]
         assert plan.unchecked_args == ()
 
     def test_argument_cap_reports_what_was_not_checked(self) -> None:
@@ -44,7 +41,7 @@ class TestCallQuestions:
 
     def test_zero_argument_checks(self) -> None:
         plan = build_call_questions(REFUND, max_argument_checks=0)
-        assert [q.id for q in plan.questions] == ["consent", "premature"]
+        assert [q.id for q in plan.questions] == ["consent"]
         assert plan.unchecked_args == ("order_id", "amount")
 
     def test_skipped_arguments_are_neither_asked_nor_reported(self) -> None:
@@ -57,11 +54,11 @@ class TestCallQuestions:
             build_call_questions(REFUND, max_argument_checks=-1)
 
     def test_wire_maps_ids_to_questions(self) -> None:
-        wire = build_call_questions(REFUND).wire()
+        wire = build_call_questions(REFUND, include_premature=True).wire()
         assert set(wire) == {"arg:order_id", "arg:amount", "consent", "premature"}
 
     def test_every_question_sharpens_the_boundary_with_both_criteria(self) -> None:
-        for q in build_call_questions(REFUND).questions:
+        for q in build_call_questions(REFUND, include_premature=True).questions:
             assert q.question.true_means
             assert q.question.false_means
 
@@ -87,10 +84,17 @@ class TestWording:
             assert "</question>" not in text
 
     def test_polarity_of_the_premature_question_is_yes_means_clarify(self) -> None:
-        planned = build_call_questions(REFUND).questions[-1]
+        planned = build_call_questions(REFUND, include_premature=True).questions[-1]
         assert planned.kind is CheckKind.PREMATURE_ACTION
         assert "clarif" in (planned.question.true_means or "")
         assert not CheckKind.PREMATURE_ACTION.yes_is_good
+
+    def test_questions_stay_compact_because_every_token_costs_latency(self) -> None:
+        # v1 questions were ~350-410 characters each and cost ~20% more time per request.
+        for planned in build_call_questions(REFUND, include_premature=True).questions:
+            wire = planned.question.to_wire()
+            total = len(wire["instructions"]) + sum(len(v) for v in wire["criteria"].values())
+            assert total < 330, f"{planned.id} is {total} chars"
 
 
 class TestClaimQuestions:
