@@ -1,0 +1,83 @@
+# ShopHelp customer-support agent policy (see SCOPE.md section 4.1).
+#
+# A rule TRIGGERS when its `when` clause matches a proposed call, and then applies its `effect`:
+#   block             - the call never runs
+#   require_approval  - a human must approve first
+# Calls that trigger no rule continue to the Decider checks and the risk x confidence matrix.
+#
+# Facts used below (`$ctx.<name>`) are supplied by the caller, e.g. after an order lookup.
+# If a referenced fact is missing, the rule triggers (fail-closed), so the agent has to look
+# the order up before it can refund it.
+
+version: 1
+name: shophelp
+default_for_unknown_tools: block
+
+tools:
+  get_order_status:
+    risk: low
+    tags: [read_only]
+  get_customer_profile:
+    risk: low
+    tags: [read_only, pii]
+  send_customer_email:
+    risk: medium
+    tags: [outbound]
+  update_shipping_address:
+    risk: medium
+    tags: [write]
+  cancel_order:
+    risk: medium
+    tags: [write, irreversible]
+  issue_refund:
+    risk: high
+    tags: [financial, irreversible]
+  delete_customer_data:
+    risk: high
+    tags: [destructive, pii, irreversible]
+
+rules:
+  - id: no-delete-customer-data
+    description: This agent may never delete customer data.
+    effect: block
+    when:
+      tool: delete_customer_data
+
+  - id: destructive-needs-approval
+    description: Destructive actions always need a human.
+    effect: require_approval
+    when:
+      tags: [destructive]
+
+  - id: refund-exceeds-order-total
+    description: A refund cannot be larger than the order total.
+    effect: block
+    when:
+      tool: issue_refund
+      args:
+        amount: { gt: $ctx.order_total }
+
+  # issue_refund is already high risk (always needs approval via the decision matrix). This rule
+  # keeps the $200 limit enforced even if someone later lowers the tool's risk tier.
+  - id: refund-over-200-needs-approval
+    description: Refunds above $200 need human approval.
+    effect: require_approval
+    when:
+      tool: issue_refund
+      args:
+        amount: { gt: 200 }
+
+  - id: max-3-refunds-per-session
+    description: At most 3 refunds per session.
+    effect: block
+    when:
+      tool: issue_refund
+      prior_calls: { gte: 3 }
+
+  - id: email-only-to-profile-address
+    description: Emails may only go to the address on the customer's profile.
+    effect: block
+    when:
+      tool: send_customer_email
+      args:
+        to: { ne: $ctx.customer_email }
