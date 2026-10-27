@@ -141,12 +141,16 @@ class When(_Strict):
     """Which calls a rule applies to. All given parts must hold (AND).
 
     ``tool`` is a tool name, a list of names, or ``"*"`` for any tool. ``tags`` matches a tool
-    that has at least one of the listed tags. Use several rules for OR logic.
+    that has at least one of the listed tags. ``facts`` tests session facts the same way ``args``
+    tests arguments, except a *missing* fact does not trigger (the agent may not have looked the
+    order up yet). ``$ctx`` references on arguments still fail-closed when missing. Use several
+    rules for OR logic.
     """
 
     tool: tuple[str, ...] | None = None
     tags: tuple[str, ...] = ()
     args: dict[str, ArgCondition] = Field(default_factory=dict)
+    facts: dict[str, ArgCondition] = Field(default_factory=dict)
     prior_calls: CountCondition | None = None
 
     @field_validator("tool", mode="before")

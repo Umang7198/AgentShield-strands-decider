@@ -38,7 +38,11 @@ def outcomes(log: MemoryAuditLog) -> list[tuple[str, Outcome, str | None]]:
 class TestLookupsFeedThePolicy:
     def test_order_lookup_writes_order_total(self) -> None:
         app, _, _ = run([("get_order_status", {"order_id": "A1001"})])
-        assert app.handler.session.context().facts["order_total"] == 89.99
+        facts = app.handler.session.context().facts
+        assert facts["order_total"] == 89.99
+        assert facts["refundable_remaining"] == 89.99
+        assert facts["order_status"] == "shipped"
+        assert facts["within_return_window"] is True
         assert app.store.get_order("A1001")["status"] == "shipped"
 
     def test_profile_lookup_writes_customer_email(self) -> None:
@@ -146,7 +150,8 @@ class TestHumanApproval:
         rec, _ = desk.approve(pending[0].id, by="alice")
         assert rec.status is ApprovalStatus.APPROVED
         assert rec.resolved_by == "alice"
-        assert app.store.refunds == [{"order_id": "A1001", "amount": 40.0}]
+        assert app.store.refunds[0]["order_id"] == "A1001"
+        assert app.store.refunds[0]["amount"] == 40.0
 
     def test_denying_a_refund_leaves_the_store_untouched(self) -> None:
         desk = ApprovalDesk()

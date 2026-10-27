@@ -66,9 +66,17 @@ load();
 """
 
 
-def create_app(desk: ApprovalDesk, *, token: str | None = None) -> FastAPI:
+def create_app(
+    desk: ApprovalDesk,
+    *,
+    token: str | None = None,
+    runtime: Any | None = None,
+) -> FastAPI:
     """``token`` is the shared secret. If omitted, ``APPROVAL_TOKEN`` is read; if still empty,
     the API is open (dev) but every decision still records an approver id.
+
+    Pass a :class:`~agentshield.shophelp.runtime.ShopHelpRuntime` to serve the Hearth & Cable
+    desk at ``/`` and ``/review``.
     """
     expected = token if token is not None else os.environ.get("APPROVAL_TOKEN", "")
     app = FastAPI(title="AgentShield", version="0.1.0")
@@ -113,9 +121,15 @@ def create_app(desk: ApprovalDesk, *, token: str | None = None) -> FastAPI:
     def deny(approval_id: str, body: ResolveRequest) -> dict[str, Any]:
         return _resolve(desk.deny, approval_id, body)
 
-    @app.get("/review", response_class=HTMLResponse)
-    def review() -> str:
-        return _REVIEW_HTML
+    if runtime is not None:
+        from agentshield.api.demo import mount_demo
+
+        mount_demo(app, runtime)
+    else:
+
+        @app.get("/review", response_class=HTMLResponse)
+        def review() -> str:
+            return _REVIEW_HTML
 
     return app
 

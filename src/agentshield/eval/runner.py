@@ -8,8 +8,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from agentshield.core.matrix import decide
-from agentshield.core.models import DecisionSource, Outcome, RiskTier
+from agentshield.core.models import DecisionSource, Outcome
 from agentshield.decider.checker import DeciderChecker
 from agentshield.decider.fake import FakeDeciderClient
 from agentshield.eval.metrics import EvalRow
@@ -133,9 +132,9 @@ class EvalHarness:
         assert scenario.claim is not None
         if mode in (Mode.NONE, Mode.POLICY):
             return Outcome.ALLOW, None, "claims are not visible to this ablation", ()
-        run = await self._checker.check_claim(scenario.claim, scenario.messages)
-        d = decide(RiskTier.LOW, run.checks)
-        return d.outcome, d.source, d.reason, run.checks
+        verdict = await self._shield.evaluate_claim(scenario.claim, scenario.messages)
+        d = verdict.decision
+        return d.outcome, d.source, d.reason, verdict.run.checks if verdict.run else ()
 
 
 class OracleHarness(EvalHarness):

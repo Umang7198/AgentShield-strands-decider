@@ -39,7 +39,14 @@ def make(
 
 @pytest.fixture
 def session() -> SessionState:
-    return SessionState("s1", facts={"order_total": 89.99, "customer_email": "ann@example.com"})
+    return SessionState(
+        "s1",
+        facts={
+            "order_total": 89.99,
+            "refundable_remaining": 89.99,
+            "customer_email": "ann@example.com",
+        },
+    )
 
 
 class TestPolicyFirst:
@@ -75,7 +82,7 @@ class TestPolicyFirst:
     async def test_missing_fact_fails_closed(self) -> None:
         shield, _ = make()
         v = await shield.evaluate(call("issue_refund", order_id="A1", amount=10), CHAT)
-        assert v.decision.outcome is Outcome.BLOCK  # no order_total known
+        assert v.decision.outcome is Outcome.BLOCK  # no refundable_remaining known
 
 
 class TestDeciderEvidence:
@@ -170,6 +177,31 @@ class TestDeciderFailure:
         v = await shield.evaluate(call("delete_customer_data", customer_id="C1"), CHAT)
         assert v.decision.source is DecisionSource.POLICY
         assert v.decider_error is None
+
+
+class TestClaims:
+    async def test_supported_claim_is_allowed(self) -> None:
+        shield, fake = make({"claim": 0.9, **GOOD})
+        messages = [Message(role="tool", name="issue_refund", content='{"amount":40}')]
+        v = await shield.evaluate_claim("Your refund of $40 was issued.", messages)
+        assert v.decision.outcome is Outcome.ALLOW
+        assert v.call.name == "agent_claim"
+        assert v.policy.risk is RiskTier.LOW
+        assert fake.calls
+
+    async def test_ungrounded_claim_needs_clarification(self) -> None:
+        shield, _ = make({"claim": 0.12, **GOOD})
+        v = await shield.evaluate_claim("Your refund has been processed.", CHAT)
+        assert v.decision.outcome is Outcome.CLARIFY
+        assert v.decision.limiting_check is not None
+        assert v.decision.limiting_check.kind is CheckKind.CLAIM_GROUNDING
+
+    async def test_policy_does_not_see_claims_as_unknown_tools(self) -> None:
+        shield, fake = make()
+        v = await shield.evaluate_claim("Order A1001 is shipped.", CHAT)
+        assert v.decision.source is not DecisionSource.POLICY
+        assert v.decision.rule_id is None
+        assert fake.calls
 
 
 class TestVerdict:

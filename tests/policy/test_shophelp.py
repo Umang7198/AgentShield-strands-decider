@@ -22,7 +22,14 @@ def call(name: str, **args: Any) -> ToolCall:
 
 @pytest.fixture
 def session() -> SessionState:
-    return SessionState("s1", facts={"order_total": 89.99, "customer_email": "ann@example.com"})
+    return SessionState(
+        "s1",
+        facts={
+            "order_total": 89.99,
+            "refundable_remaining": 89.99,
+            "customer_email": "ann@example.com",
+        },
+    )
 
 
 def outcome(engine: PolicyEngine, c: ToolCall, s: SessionState) -> Outcome | None:
@@ -69,15 +76,15 @@ class TestForbidden:
 
 class TestRefundRules:
     def test_over_200_needs_approval(self, engine: PolicyEngine) -> None:
-        s = SessionState("s", facts={"order_total": 900})
+        s = SessionState("s", facts={"order_total": 900, "refundable_remaining": 900})
         assert outcome(engine, call("issue_refund", amount=500), s) is Outcome.REQUIRE_APPROVAL
 
     def test_exactly_200_does_not_trigger_the_limit(self, engine: PolicyEngine) -> None:
-        s = SessionState("s", facts={"order_total": 900})
+        s = SessionState("s", facts={"order_total": 900, "refundable_remaining": 900})
         assert outcome(engine, call("issue_refund", amount=200), s) is None
 
     def test_amount_as_string_is_still_caught(self, engine: PolicyEngine) -> None:
-        s = SessionState("s", facts={"order_total": 900})
+        s = SessionState("s", facts={"order_total": 900, "refundable_remaining": 900})
         assert outcome(engine, call("issue_refund", amount="500"), s) is Outcome.REQUIRE_APPROVAL
 
     def test_refund_above_order_total_is_blocked(
@@ -86,22 +93,68 @@ class TestRefundRules:
         assert outcome(engine, call("issue_refund", amount=120), session) is Outcome.BLOCK
 
     def test_refund_before_looking_up_the_order_is_blocked(self, engine: PolicyEngine) -> None:
-        # No order_total fact yet -> fail closed, so the agent must look the order up first.
+        # No refundable_remaining fact yet -> fail closed, so the agent must look the order up first.
         s = SessionState("s")
         assert outcome(engine, call("issue_refund", amount=10), s) is Outcome.BLOCK
 
     def test_fourth_refund_in_a_session_is_blocked(self, engine: PolicyEngine) -> None:
-        s = SessionState("s", facts={"order_total": 900})
+        s = SessionState("s", facts={"order_total": 900, "refundable_remaining": 900})
         for _ in range(3):
             assert outcome(engine, call("issue_refund", amount=10), s) is None
             s.record_call("issue_refund")
         assert outcome(engine, call("issue_refund", amount=10), s) is Outcome.BLOCK
 
     def test_blocked_attempts_do_not_count_against_the_quota(self, engine: PolicyEngine) -> None:
-        s = SessionState("s", facts={"order_total": 50})
+        s = SessionState("s", facts={"order_total": 50, "refundable_remaining": 50})
         for _ in range(10):  # all blocked (over order total); never executed, never recorded
             assert outcome(engine, call("issue_refund", amount=500), s) is Outcome.BLOCK
         assert s.context().prior_calls == {}
+
+
+class TestStatusAndWindow:
+    def test_cancel_without_status_fact_is_not_a_policy_block(self, engine: PolicyEngine) -> None:
+        assert outcome(engine, call("cancel_order", order_id="A3003"), SessionState("s")) is None
+
+    def test_cancel_of_delivered_order_is_blocked(self, engine: PolicyEngine) -> None:
+        s = SessionState("s", facts={"order_status": "delivered"})
+        assert outcome(engine, call("cancel_order", order_id="A3003"), s) is Outcome.BLOCK
+
+    def test_address_change_after_shipped_needs_approval(self, engine: PolicyEngine) -> None:
+        s = SessionState("s", facts={"order_status": "shipped"})
+        assert (
+            outcome(
+                engine,
+                call("update_shipping_address", order_id="A1001", address="9 High St, Bath"),
+                s,
+            )
+            is Outcome.REQUIRE_APPROVAL
+        )
+
+    def test_address_change_while_processing_passes_policy(self, engine: PolicyEngine) -> None:
+        s = SessionState("s", facts={"order_status": "processing"})
+        assert (
+            outcome(
+                engine,
+                call("update_shipping_address", order_id="A2002", address="9 High St, Bath"),
+                s,
+            )
+            is None
+        )
+
+    def test_second_refund_over_remaining_is_blocked(self, engine: PolicyEngine) -> None:
+        s = SessionState("s", facts={"order_total": 89.99, "refundable_remaining": 49.99})
+        assert outcome(engine, call("issue_refund", amount=50), s) is Outcome.BLOCK
+
+    def test_refund_outside_return_window_is_blocked(self, engine: PolicyEngine) -> None:
+        s = SessionState(
+            "s",
+            facts={
+                "order_total": 19.50,
+                "refundable_remaining": 19.50,
+                "within_return_window": False,
+            },
+        )
+        assert outcome(engine, call("issue_refund", amount=10), s) is Outcome.BLOCK
 
 
 class TestEmailRules:

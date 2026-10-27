@@ -1,0 +1,56 @@
+from agentshield.approvals import ApprovalDesk
+from agentshield.core import Outcome
+from agentshield.decider import DeciderChecker, FakeDeciderClient
+from agentshield.shophelp.runtime import SCENES, ShopHelpRuntime
+from agentshield.shophelp.world import STORE_NAME
+from tests.fakes import ScriptedModel
+
+GOOD = {"arg:*": 0.95, "consent": 0.95, "claim": 0.95}
+
+
+def make(
+    calls: list[tuple[str, dict[str, object]]] | None = None,
+    *,
+    script: dict[str, float] | None = None,
+    final: str = "A1001 has shipped.",
+) -> ShopHelpRuntime:
+    return ShopHelpRuntime(
+        ScriptedModel(calls or [], final=final),
+        DeciderChecker(FakeDeciderClient(GOOD if script is None else script)),
+        approvals=ApprovalDesk(),
+    )
+
+
+def test_board_is_hearth_and_cable() -> None:
+    state = make().state()
+    assert state["store"] == STORE_NAME
+    orders = {row["order_id"]: row for row in state["board"]["orders"]}
+    assert orders["A1001"]["status"] == "shipped"
+    assert orders["A1001"]["ticket_id"] == "T-1042"
+    assert orders["A3003"]["within_return_window"] is False
+    assert len(SCENES) == 10
+
+
+def test_reset_restores_the_catalogue() -> None:
+    runtime = make([("cancel_order", {"order_id": "A2002"})])
+    runtime.chat("Please cancel order A2002.")
+    assert runtime.app.store.get_order("A2002")["status"] == "cancelled"
+    runtime.reset()
+    assert runtime.app.store.get_order("A2002")["status"] == "processing"
+    assert runtime.tape == []
+    assert runtime.transcript == []
+
+
+def test_ungrounded_claim_is_flagged_on_the_tape() -> None:
+    runtime = make(script={**GOOD, "claim": 0.12})
+    state = runtime.check_claim("Your refund has been processed.")
+    assert state["tape"][-1]["tool"] == "agent_claim"
+    assert state["tape"][-1]["outcome"] == Outcome.CLARIFY.value
+    assert state["transcript"][-1]["role"] == "gate"
+
+
+def test_supported_claim_is_not_flagged() -> None:
+    runtime = make(script={**GOOD, "claim": 0.92})
+    state = runtime.check_claim("Your refund of $40 was issued.")
+    assert state["tape"][-1]["outcome"] == Outcome.ALLOW.value
+    assert state["transcript"][-1]["role"] == "assistant"

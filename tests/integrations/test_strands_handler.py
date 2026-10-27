@@ -201,7 +201,14 @@ def make_handler(
         PolicyEngine(load_policy(POLICY)),
         DeciderChecker(FakeDeciderClient(GOOD if script is None else script, **kw)),
     )
-    session = SessionState("s", facts={"order_total": 89.99, "customer_email": "ann@example.com"})
+    session = SessionState(
+        "s",
+        facts={
+            "order_total": 89.99,
+            "refundable_remaining": 89.99,
+            "customer_email": "ann@example.com",
+        },
+    )
     return AgentShieldHandler(shield, session, on_verdict=seen.append), seen
 
 

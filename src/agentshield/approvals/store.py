@@ -36,6 +36,10 @@ class MemoryApprovalStore:
         self._lock = Lock()
         self._rows: dict[str, Approval] = {}
 
+    def clear(self) -> None:
+        with self._lock:
+            self._rows.clear()
+
     def put(self, approval: Approval) -> None:
         with self._lock:
             self._rows[approval.id] = approval

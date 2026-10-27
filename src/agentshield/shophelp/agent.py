@@ -25,13 +25,22 @@ POLICY_PATH = Path(__file__).resolve().parents[3] / "policies" / "shophelp.yaml"
 
 SHOPHELP_FACTS = FactMap(
     {
-        "get_order_status": {"total": "order_total"},
+        "get_order_status": {
+            "total": "order_total",
+            "refundable_remaining": "refundable_remaining",
+            "status": "order_status",
+            "within_return_window": "within_return_window",
+        },
         "get_customer_profile": {"email": "customer_email"},
+        "cancel_order": {"status": "order_status"},
+        "update_shipping_address": {"status": "order_status"},
+        "issue_refund": {"refundable_remaining": "refundable_remaining"},
     }
 )
 
 SYSTEM_PROMPT = """\
-You are ShopHelp, a customer-support agent for a small online store.
+You are ShopHelp, Maya's customer-support copilot at Hearth & Cable, a small UK housewares \
+and electronics shop.
 
 Rules:
 - Use tools to look things up. Never invent an order id, customer id, email, amount or address.
@@ -40,6 +49,7 @@ Rules:
 - Ask the user before any write (cancel, refund, address change, email).
 - If a tool is denied or you are told to clarify, follow that instruction. Do not retry the \
 same call with guessed values.
+- Never claim a refund, cancel, email or address change happened unless a tool result shows it.
 """
 
 

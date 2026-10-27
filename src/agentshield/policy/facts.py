@@ -1,8 +1,8 @@
 """Copy fields out of a successful tool result into :class:`~agentshield.policy.session.SessionState`.
 
 The policy engine is stateless; it only sees facts the session already knows. Lookups such as
-``get_order_status`` have to write ``order_total`` here, otherwise a later refund is fail-closed
-(the ``$ctx.order_total`` fact is missing).
+``get_order_status`` has to write ``refundable_remaining`` here, otherwise a later refund is
+fail-closed (the ``$ctx.refundable_remaining`` fact is missing).
 """
 
 from __future__ import annotations

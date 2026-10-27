@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict
 from agentshield.audit.record import Redactor, build_record
 from agentshield.audit.store import AuditSink
 from agentshield.core.matrix import Thresholds, decide, fallback_decision
-from agentshield.core.models import Decision, ToolCall
+from agentshield.core.models import Decision, RiskTier, ToolCall
 from agentshield.decider.checker import CheckRun, DeciderChecker
 from agentshield.decider.errors import DeciderError
 from agentshield.decider.state import Message
@@ -37,6 +37,9 @@ from agentshield.policy.engine import PolicyEngine
 from agentshield.policy.models import PolicyResult
 from agentshield.policy.session import SessionState
 from agentshield.telemetry import SPAN_DECIDER, SPAN_EVALUATE, SPAN_POLICY, Telemetry
+
+CLAIM_TOOL = "agent_claim"
+"""Synthetic tool name used when the gate judges an assistant claim, not a tool call."""
 
 
 class Verdict(BaseModel):
@@ -115,6 +118,34 @@ class Shield:
             decision = decide(policy.risk, run.checks, self._thresholds)
             verdict = self._verdict(call, decision, policy, started, run=run)
             return self._emit(verdict, policy, policy_ms, session_id, span)
+
+    async def evaluate_claim(
+        self,
+        claim: str,
+        messages: Sequence[Message],
+        session: SessionState | None = None,
+    ) -> Verdict:
+        """Judge an assistant statement against the conversation (no policy, low risk).
+
+        The claim itself must not be in ``messages`` or it will look self-supporting.
+        """
+        started = time.perf_counter()
+        session_id = session.session_id if session else "anonymous"
+        call = ToolCall(name=CLAIM_TOOL, arguments={"claim": claim})
+        policy = PolicyResult(tool=CLAIM_TOOL, risk=RiskTier.LOW, known_tool=True)
+        with self._telemetry.tracer.start_as_current_span(SPAN_EVALUATE) as span:
+            try:
+                with self._telemetry.tracer.start_as_current_span(SPAN_DECIDER):
+                    run = await self._checker.check_claim(claim, messages)
+            except DeciderError as exc:
+                decision = fallback_decision(RiskTier.LOW, f"{type(exc).__name__}: {exc}")
+                verdict = self._verdict(
+                    call, decision, policy, started, error=str(exc) or type(exc).__name__
+                )
+                return self._emit(verdict, policy, 0.0, session_id, span)
+            decision = decide(RiskTier.LOW, run.checks, self._thresholds)
+            verdict = self._verdict(call, decision, policy, started, run=run)
+            return self._emit(verdict, policy, 0.0, session_id, span)
 
     def _emit(
         self,

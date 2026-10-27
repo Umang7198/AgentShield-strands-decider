@@ -13,6 +13,11 @@ class TestLookups:
         order = store.get_order("A1001")
         assert order["total"] == 89.99
         assert order["customer_id"] == "C42"
+        assert order["status"] == "shipped"
+        assert order["sku"] == "HC-HP-01"
+        assert order["refundable_remaining"] == 89.99
+        assert order["within_return_window"] is True
+        assert order["ticket_id"] == "T-1042"
         assert "ignore previous rules" in order["notes"]
 
     def test_unknown_order(self, store: ShopHelpStore) -> None:
@@ -38,8 +43,21 @@ class TestWrites:
         assert updated["address"] == "9 High St, Bath"
 
     def test_refund_is_recorded(self, store: ShopHelpStore) -> None:
+        record = store.refund("A1001", 40)
+        assert record["amount"] == 40.0
+        assert record["refundable_remaining"] == 49.99
+        assert store.refunds[0]["order_id"] == "A1001"
+        assert store.get_order("A1001")["refunded_so_far"] == 40.0
+
+    def test_refund_cannot_exceed_remaining(self, store: ShopHelpStore) -> None:
         store.refund("A1001", 40)
-        assert store.refunds == [{"order_id": "A1001", "amount": 40.0}]
+        with pytest.raises(ShopHelpError, match="exceeds remaining"):
+            store.refund("A1001", 50)
+
+    def test_ann_cable_is_outside_the_return_window(self, store: ShopHelpStore) -> None:
+        order = store.get_order("A3003")
+        assert order["status"] == "delivered"
+        assert order["within_return_window"] is False
 
     def test_email_is_recorded(self, store: ShopHelpStore) -> None:
         store.send_email("sam@example.com", "Hi", "Hello")

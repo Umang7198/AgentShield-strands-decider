@@ -1,13 +1,16 @@
-# ShopHelp customer-support agent policy (see SCOPE.md section 4.1).
+# ShopHelp / Hearth & Cable customer-support policy (see SCOPE.md section 4.1).
 #
 # A rule TRIGGERS when its `when` clause matches a proposed call, and then applies its `effect`:
 #   block             - the call never runs
 #   require_approval  - a human must approve first
 # Calls that trigger no rule continue to the Decider checks and the risk x confidence matrix.
 #
-# Facts used below (`$ctx.<name>`) are supplied by the caller, e.g. after an order lookup.
-# If a referenced fact is missing, the rule triggers (fail-closed), so the agent has to look
-# the order up before it can refund it.
+# Argument `$ctx.<name>` facts fail-closed when missing (the agent must look the order up first).
+# `when.facts` tests known session facts and does *not* trigger when the fact is absent, so a
+# cancel before lookup still reaches the Decider (consent / grounding) instead of a policy block.
+#
+# Facts used below are supplied after an order or profile lookup:
+#   $ctx.refundable_remaining, $ctx.order_status, $ctx.within_return_window, $ctx.customer_email
 
 version: 1
 name: shophelp
@@ -50,12 +53,12 @@ rules:
       tags: [destructive]
 
   - id: refund-exceeds-order-total
-    description: A refund cannot be larger than the order total.
+    description: A refund cannot be larger than the remaining refundable balance.
     effect: block
     when:
       tool: issue_refund
       args:
-        amount: { gt: $ctx.order_total }
+        amount: { gt: $ctx.refundable_remaining }
 
   # issue_refund is already high risk (always needs approval via the decision matrix). This rule
   # keeps the $200 limit enforced even if someone later lowers the tool's risk tier.
@@ -81,3 +84,35 @@ rules:
       tool: send_customer_email
       args:
         to: { ne: $ctx.customer_email }
+
+  - id: no-cancel-if-closed
+    description: Delivered or already-cancelled orders cannot be cancelled.
+    effect: block
+    when:
+      tool: cancel_order
+      facts:
+        order_status: { in: [delivered, cancelled] }
+
+  - id: no-address-change-if-closed
+    description: Delivered or cancelled orders cannot change address.
+    effect: block
+    when:
+      tool: update_shipping_address
+      facts:
+        order_status: { in: [delivered, cancelled] }
+
+  - id: shipped-address-needs-approval
+    description: Address changes after shipment need a supervisor.
+    effect: require_approval
+    when:
+      tool: update_shipping_address
+      facts:
+        order_status: { eq: shipped }
+
+  - id: refund-outside-return-window
+    description: Refunds outside the 14-day return window are not allowed.
+    effect: block
+    when:
+      tool: issue_refund
+      facts:
+        within_return_window: { eq: false }

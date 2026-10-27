@@ -212,6 +212,22 @@ class TestContextFacts:
         assert triggered(e, call(to="eve@shop.com"), ctx)
 
 
+class TestSessionFacts:
+    def test_in_on_a_known_fact(self) -> None:
+        e = make([rule(tool="pay", facts={"order_status": {"in": ["delivered", "cancelled"]}})])
+        assert triggered(e, call(), PolicyContext(facts={"order_status": "delivered"}))
+        assert not triggered(e, call(), PolicyContext(facts={"order_status": "processing"}))
+
+    def test_missing_fact_does_not_trigger(self) -> None:
+        e = make([rule(tool="pay", facts={"order_status": {"eq": "delivered"}})])
+        assert not triggered(e, call(), PolicyContext())
+
+    def test_boolean_fact(self) -> None:
+        e = make([rule(tool="pay", facts={"within_return_window": {"eq": False}})])
+        assert triggered(e, call(), PolicyContext(facts={"within_return_window": False}))
+        assert not triggered(e, call(), PolicyContext(facts={"within_return_window": True}))
+
+
 class TestAllConditionsMustHold:
     def test_args_are_anded(self) -> None:
         e = make([rule(args={"amount": {"gt": 100}, "currency": {"eq": "usd"}})])

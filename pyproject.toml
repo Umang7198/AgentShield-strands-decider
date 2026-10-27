@@ -37,6 +37,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+agentshield = ["api/*.html"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

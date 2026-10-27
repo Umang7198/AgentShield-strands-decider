@@ -113,12 +113,24 @@ def _conditions_detail(when: When, call: ToolCall, ctx: PolicyContext) -> str | 
         if detail is None:
             return None
         parts.append(detail)
+    for fact_name, cond in when.facts.items():
+        detail = _eval_fact(cond, fact_name, ctx)
+        if detail is None:
+            return None
+        parts.append(detail)
     if when.prior_calls is not None:
         count = ctx.prior_calls.get(call.name, 0)
         if not when.prior_calls.holds(count):
             return None
         parts.append(f"{count} prior call(s) this session")
     return "; ".join(parts)
+
+
+def _eval_fact(cond: ArgCondition, name: str, ctx: PolicyContext) -> str | None:
+    """Test a session fact. Absent facts do **not** fail-closed (unlike ``$ctx`` on arguments)."""
+    if name not in ctx.facts:
+        return None
+    return _eval_arg(cond, name, {name: ctx.facts[name]}, ctx)
 
 
 def _eval_arg(

@@ -45,6 +45,12 @@ class ApprovalDesk:
     def register_agent(self, session_id: str, agent: ResumeAgent) -> None:
         self._agents[session_id] = agent
 
+    def clear(self) -> None:
+        """Drop pending/resolved cards (memory store) so a demo reset starts clean."""
+        clearer = getattr(self._store, "clear", None)
+        if callable(clearer):
+            clearer()
+
     def submit(
         self,
         verdict: Verdict,

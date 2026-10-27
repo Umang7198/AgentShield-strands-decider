@@ -18,12 +18,12 @@ def bind_tools(store: ShopHelpStore) -> list[Any]:
 
     @tool
     def get_order_status(order_id: str) -> dict[str, Any]:
-        """Look up an order by id. Returns status, total, items, address and customer_id."""
+        """Look up an order by id. Returns status, totals, remaining refundable, address."""
         return store.get_order(order_id)
 
     @tool
     def get_customer_profile(customer_id: str) -> dict[str, Any]:
-        """Look up a customer by id. Returns name and email."""
+        """Look up a customer by id. Returns name, email and address."""
         return store.get_customer(customer_id)
 
     @tool

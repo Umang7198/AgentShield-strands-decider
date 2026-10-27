@@ -6,7 +6,7 @@ to skip it (policy still runs).
     python scripts/shophelp_demo.py
     python scripts/shophelp_demo.py "Where is order A1001?"
     python scripts/shophelp_demo.py --fake-decider "Refund 40 dollars on A1001"
-    python scripts/shophelp_demo.py --port 8080   # review UI at http://127.0.0.1:8080/review
+    python scripts/shophelp_demo.py --port 8080   # desk UI at http://127.0.0.1:8080/
 """
 
 from __future__ import annotations
@@ -67,34 +67,29 @@ def _checker(fake: bool) -> DeciderChecker:
     from agentshield.decider import FakeDeciderClient, HttpDeciderClient
 
     if fake:
-        return DeciderChecker(FakeDeciderClient({"arg:*": 0.95, "consent": 0.95}))
+        return DeciderChecker(FakeDeciderClient({"arg:*": 0.95, "consent": 0.95, "claim": 0.95}))
     url = os.environ.get("DECIDER_URL", "http://127.0.0.1:8099").rstrip("/")
     return DeciderChecker(HttpDeciderClient(url, timeout_s=20.0))
 
 
-def _chat(app: object, text: str) -> None:
-    from agentshield.shophelp import ShopHelpApp
-
-    assert isinstance(app, ShopHelpApp)
-    result = app.agent(text)
-    _print_result(app, result)
-
-
-def _print_result(app: object, result: object) -> None:
-    from agentshield.shophelp import ShopHelpApp
-
-    assert isinstance(app, ShopHelpApp)
-    stop = getattr(result, "stop_reason", None)
-    if stop == "interrupt":
-        pending = app.approvals.pending() if app.approvals else []
-        if pending:
-            rec = pending[0]
-            print(f"  [paused] {rec.prompt}")
-            print("           type 'approve' or 'deny', or open /review if --port is set")
-        else:
-            print("  [paused] waiting for human approval")
+def _print_state(state: dict[str, object]) -> None:
+    if state.get("paused"):
+        print(f"  [paused] {state.get('reply')}")
+        print("           type 'approve' or 'deny', or open the desk UI if --port is set")
         return
-    print(str(result).rstrip())
+    reply = str(state.get("reply") or "").rstrip()
+    if reply:
+        print(reply)
+    gates: list[dict[str, object]] = []
+    transcript = state.get("transcript")
+    rows = transcript if isinstance(transcript, list) else []
+    for row in reversed(rows):
+        if isinstance(row, dict) and row.get("role") == "gate":
+            gates.append(row)
+            continue
+        break
+    for row in reversed(gates):
+        print(f"  [gate] {row.get('text')}")
 
 
 def _serve(app_api: Any, port: int) -> None:
@@ -115,28 +110,27 @@ def main() -> int:
         "--port",
         type=int,
         default=0,
-        help="serve the approval review UI on this port (same process as the agent)",
+        help="serve the Hearth & Cable desk UI on this port (same process as the agent)",
     )
     args = parser.parse_args()
 
     from agentshield.api import create_app
     from agentshield.approvals import ApprovalDesk
-    from agentshield.shophelp import build_shophelp
+    from agentshield.shophelp.runtime import ShopHelpRuntime, banner
 
     desk = ApprovalDesk()
-    app = build_shophelp(
-        _model(), _checker(args.fake_decider), on_verdict=_on_verdict(), approvals=desk
+    runtime = ShopHelpRuntime(
+        _model(), _checker(args.fake_decider), approvals=desk, on_verdict=_on_verdict()
     )
-    print("ShopHelp ready. Try: 'Where is order A1001?'  (quit to exit)")
-    print("Orders: A1001 $89.99 (Sam), A2002 $249.00 (Sam), A3003 $19.50 (Ann).")
+    print(banner())
     if args.port:
-        api = create_app(desk)
+        api = create_app(desk, runtime=runtime)
         threading.Thread(target=_serve, args=(api, args.port), daemon=True).start()
-        print(f"Review UI: http://127.0.0.1:{args.port}/review")
+        print(f"Desk UI: http://127.0.0.1:{args.port}/")
 
     if args.prompt:
         print(f"you> {args.prompt}")
-        _chat(app, args.prompt)
+        _print_state(runtime.chat(args.prompt))
         return 0
 
     while True:
@@ -147,18 +141,20 @@ def main() -> int:
             return 0
         if not line or line in {"quit", "exit"}:
             return 0
-        if line in {"approve", "deny"} and app.approvals:
-            pending = app.approvals.pending()
+        if line == "reset":
+            runtime.reset()
+            print("  catalogue reset")
+            continue
+        if line in {"approve", "deny"}:
+            pending = runtime.approvals.pending()
             if not pending:
                 print("  nothing pending")
                 continue
-            fn = app.approvals.approve if line == "approve" else app.approvals.deny
-            rec, result = fn(pending[0].id, by="demo")
-            print(f"  [{rec.status.value}] by demo")
-            if result is not None:
-                _print_result(app, result)
+            state = runtime.resolve(pending[0].id, line, by="demo")
+            print(f"  [{line}d] by demo")
+            _print_state(state)
             continue
-        _chat(app, line)
+        _print_state(runtime.chat(line))
 
 
 if __name__ == "__main__":
