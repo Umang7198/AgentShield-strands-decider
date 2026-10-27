@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from agentshield.audit import MemoryAuditLog, Redactor
 from agentshield.core import (
     CheckKind,
     DecisionSource,
@@ -184,3 +185,63 @@ class TestVerdict:
         shield, _ = make()
         v = await shield.evaluate(call("get_order_status", order_id="A1001"), CHAT)
         assert v.decision.outcome is Outcome.ALLOW
+
+
+class TestAudit:
+    def _shield(self, log: MemoryAuditLog, **kw: Any) -> Shield:
+        return Shield(
+            PolicyEngine(load_policy(POLICY)),
+            DeciderChecker(FakeDeciderClient(GOOD)),
+            sinks=[log],
+            agent_id="shophelp",
+            **kw,
+        )
+
+    async def test_every_decision_is_written(self, session: SessionState) -> None:
+        log = MemoryAuditLog()
+        v = await self._shield(log).evaluate(
+            call("get_order_status", order_id="A1001"), CHAT, session
+        )
+        assert v.audit_id is not None
+        rec = log.get(v.audit_id)
+        assert rec is not None
+        assert rec.session_id == "s1"
+        assert rec.agent_id == "shophelp"
+        assert rec.policy_name == "shophelp"
+        assert rec.outcome is Outcome.ALLOW
+        assert rec.arguments == {"order_id": "A1001"}
+        assert rec.question_set_version is not None
+        assert rec.decider_ms is not None
+        assert rec.checks
+
+    async def test_policy_short_circuit_is_still_audited(self) -> None:
+        log = MemoryAuditLog()
+        v = await self._shield(log).evaluate(call("delete_customer_data", customer_id="C1"), CHAT)
+        rec = log.get(v.audit_id)  # type: ignore[arg-type]
+        assert rec is not None
+        assert rec.source is DecisionSource.POLICY
+        assert rec.rule_id == "no-delete-customer-data"
+        assert rec.question_set_version is None
+        assert rec.matched_rules[0].rule_id == "no-delete-customer-data"
+
+    async def test_redaction_is_audit_only(self) -> None:
+        log = MemoryAuditLog()
+        c = call("get_order_status", order_id="A1001")
+        v = await self._shield(log, redactor=Redactor(all_values=True)).evaluate(c, CHAT)
+        assert v.call.arguments["order_id"] == "A1001"
+        rec = log.get(v.audit_id) if v.audit_id else None
+        assert rec is not None
+        assert rec.arguments["order_id"] == "***"
+
+    async def test_a_broken_sink_surfaces(self) -> None:
+        class Boom:
+            def record(self, record: object) -> None:
+                raise RuntimeError("disk full")
+
+        shield = Shield(
+            PolicyEngine(load_policy(POLICY)),
+            DeciderChecker(FakeDeciderClient(GOOD)),
+            sinks=[Boom()],  # type: ignore[list-item]
+        )
+        with pytest.raises(RuntimeError, match="disk full"):
+            await shield.evaluate(call("get_order_status", order_id="A1"), CHAT)

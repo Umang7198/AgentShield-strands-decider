@@ -12,6 +12,10 @@ Order matters:
 3. **Decision matrix** turns the evidence into ALLOW / CLARIFY / REQUIRE_APPROVAL / BLOCK.
 
 If the Decider is unreachable the result is a fail-closed fallback, never an ALLOW.
+
+Every evaluation is written to the audit sinks (if any) before the verdict is returned. A sink
+that fails raises, so a broken log cannot silently let a call through when this runs behind the
+Strands handler (``on_error="deny"``).
 """
 
 from __future__ import annotations
@@ -19,8 +23,11 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 
+from opentelemetry.trace import Span
 from pydantic import BaseModel, ConfigDict
 
+from agentshield.audit.record import Redactor, build_record
+from agentshield.audit.store import AuditSink
 from agentshield.core.matrix import Thresholds, decide, fallback_decision
 from agentshield.core.models import Decision, ToolCall
 from agentshield.decider.checker import CheckRun, DeciderChecker
@@ -29,6 +36,7 @@ from agentshield.decider.state import Message
 from agentshield.policy.engine import PolicyEngine
 from agentshield.policy.models import PolicyResult
 from agentshield.policy.session import SessionState
+from agentshield.telemetry import SPAN_DECIDER, SPAN_EVALUATE, SPAN_POLICY, Telemetry
 
 
 class Verdict(BaseModel):
@@ -42,6 +50,7 @@ class Verdict(BaseModel):
     run: CheckRun | None = None  # None when the policy decided or the Decider failed
     decider_error: str | None = None
     total_ms: float
+    audit_id: str | None = None
 
 
 class Shield:
@@ -52,11 +61,19 @@ class Shield:
         *,
         thresholds: Thresholds | None = None,
         include_premature: bool = False,
+        agent_id: str = "agentshield",
+        sinks: Sequence[AuditSink] = (),
+        redactor: Redactor | None = None,
+        telemetry: Telemetry | None = None,
     ) -> None:
         self._engine = engine
         self._checker = checker
         self._thresholds = thresholds or Thresholds()
         self._include_premature = include_premature
+        self._agent_id = agent_id
+        self._sinks = tuple(sinks)
+        self._redactor = redactor or Redactor()
+        self._telemetry = telemetry or Telemetry()
 
     async def evaluate(
         self,
@@ -65,25 +82,62 @@ class Shield:
         session: SessionState | None = None,
     ) -> Verdict:
         started = time.perf_counter()
+        session_id = session.session_id if session else "anonymous"
         ctx = session.context() if session else None
-        policy = self._engine.evaluate(call, ctx)
 
-        policy_decision = policy.decision
-        if policy_decision is not None:
-            return self._verdict(call, policy_decision, policy, started)
+        with self._telemetry.tracer.start_as_current_span(SPAN_EVALUATE) as span:
+            with self._telemetry.tracer.start_as_current_span(SPAN_POLICY):
+                policy_started = time.perf_counter()
+                policy = self._engine.evaluate(call, ctx)
+                policy_ms = (time.perf_counter() - policy_started) * 1000
 
-        try:
-            run = await self._checker.check_call(
-                call, messages, include_premature=self._include_premature
-            )
-        except DeciderError as exc:
-            decision = fallback_decision(policy.risk, f"{type(exc).__name__}: {exc}")
-            return self._verdict(
-                call, decision, policy, started, error=str(exc) or type(exc).__name__
-            )
+            policy_decision = policy.decision
+            if policy_decision is not None:
+                verdict = self._verdict(call, policy_decision, policy, started)
+                return self._emit(verdict, policy, policy_ms, session_id, span)
 
-        decision = decide(policy.risk, run.checks, self._thresholds)
-        return self._verdict(call, decision, policy, started, run=run)
+            try:
+                with self._telemetry.tracer.start_as_current_span(SPAN_DECIDER):
+                    run = await self._checker.check_call(
+                        call, messages, include_premature=self._include_premature
+                    )
+            except DeciderError as exc:
+                decision = fallback_decision(policy.risk, f"{type(exc).__name__}: {exc}")
+                verdict = self._verdict(
+                    call, decision, policy, started, error=str(exc) or type(exc).__name__
+                )
+                return self._emit(verdict, policy, policy_ms, session_id, span)
+
+            decision = decide(policy.risk, run.checks, self._thresholds)
+            verdict = self._verdict(call, decision, policy, started, run=run)
+            return self._emit(verdict, policy, policy_ms, session_id, span)
+
+    def _emit(
+        self,
+        verdict: Verdict,
+        policy: PolicyResult,
+        policy_ms: float,
+        session_id: str,
+        span: Span,
+    ) -> Verdict:
+        record = build_record(
+            call=verdict.call,
+            decision=verdict.decision,
+            policy=policy,
+            run=verdict.run,
+            decider_error=verdict.decider_error,
+            total_ms=verdict.total_ms,
+            policy_ms=policy_ms,
+            session_id=session_id,
+            agent_id=self._agent_id,
+            policy_name=self._engine.policy.name,
+            policy_version=self._engine.policy.version,
+            redactor=self._redactor,
+        )
+        for sink in self._sinks:
+            sink.record(record)
+        self._telemetry.record(record, span)
+        return verdict.model_copy(update={"audit_id": record.id})
 
     @staticmethod
     def _verdict(
