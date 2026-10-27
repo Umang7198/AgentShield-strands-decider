@@ -22,10 +22,12 @@ from agentshield.integrations.strands_handler import (
     approval_prompt,
     clarify_feedback,
     messages_from_strands,
+    result_payload,
     to_action,
 )
 from agentshield.pipeline import Shield, Verdict
 from agentshield.policy import PolicyEngine, SessionState, load_policy
+from agentshield.policy.facts import FactMap
 
 POLICY = Path(__file__).resolve().parents[2] / "policies" / "shophelp.yaml"
 GOOD = {"arg:*": 0.95, "consent": 0.95}
@@ -273,6 +275,47 @@ class TestHandler:
         handler.after_tool_call(executed)
         handler.after_tool_call(cancelled)
         assert handler.session.context().prior_calls == {"issue_refund": 1}
+
+    async def test_successful_lookup_writes_facts_cancelled_ones_do_not(self) -> None:
+        handler, _ = make_handler()
+        handler.session = SessionState("s")
+        handler._facts = FactMap({"get_order_status": {"total": "order_total"}})
+        ok: Any = SimpleNamespace(
+            tool_use={"name": "get_order_status"},
+            cancel_message=None,
+            result={
+                "status": "success",
+                "content": [{"text": '{"total": 89.99, "order_id": "A1001"}'}],
+            },
+        )
+        denied: Any = SimpleNamespace(
+            tool_use={"name": "get_order_status"},
+            cancel_message="DENIED",
+            result={
+                "status": "success",
+                "content": [{"text": '{"total": 1}'}],
+            },
+        )
+        handler.after_tool_call(ok)
+        handler.after_tool_call(denied)
+        assert handler.session.context().facts == {"order_total": 89.99}
+
+
+class TestResultPayload:
+    def test_json_block(self) -> None:
+        assert result_payload({"status": "success", "content": [{"json": {"total": 1}}]}) == {
+            "total": 1
+        }
+
+    def test_json_in_text(self) -> None:
+        assert result_payload({"status": "success", "content": [{"text": '{"total": 1}'}]}) == {
+            "total": 1
+        }
+
+    def test_errors_and_prose_are_ignored(self) -> None:
+        assert result_payload({"status": "error", "content": [{"json": {"total": 1}}]}) is None
+        assert result_payload({"status": "success", "content": [{"text": "ok"}]}) is None
+        assert result_payload(None) is None
 
 
 # --------------------------------------------------------------------------- real Agent

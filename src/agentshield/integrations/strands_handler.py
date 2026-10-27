@@ -29,6 +29,7 @@ from strands.interventions import Confirm, Deny, Guide, InterventionHandler, OnE
 from agentshield.core.models import CheckKind, Decision, Outcome, ToolCall
 from agentshield.decider.state import Message
 from agentshield.pipeline import Shield, Verdict
+from agentshield.policy.facts import FactMap
 from agentshield.policy.session import SessionState
 
 VerdictListener = Callable[[Verdict], None]
@@ -41,10 +42,12 @@ class AgentShieldHandler(InterventionHandler):
         session: SessionState | None = None,
         *,
         on_verdict: VerdictListener | None = None,
+        facts: FactMap | None = None,
     ) -> None:
         self._shield = shield
         self.session = session or SessionState("default")
         self._on_verdict = on_verdict
+        self._facts = facts
 
     @property
     def name(self) -> str:
@@ -73,8 +76,14 @@ class AgentShieldHandler(InterventionHandler):
 
     def after_tool_call(self, event: AfterToolCallEvent, **kwargs: Any) -> Proceed:
         # Quotas ("max 3 refunds") count only calls that really ran, not blocked ones.
-        if event.cancel_message is None:
-            self.session.record_call(event.tool_use["name"])
+        if event.cancel_message is not None:
+            return Proceed()
+        name = event.tool_use["name"]
+        self.session.record_call(name)
+        if self._facts is not None:
+            payload = result_payload(getattr(event, "result", None))
+            if payload is not None:
+                self._facts.apply(name, payload, self.session)
         return Proceed()
 
 
@@ -162,6 +171,25 @@ def _result_text(result: dict[str, Any]) -> str:
             parts.append(_dump(item["json"]))
     text = "\n".join(parts)
     return f"(error) {text}" if result.get("status") == "error" else text
+
+
+def result_payload(result: Any) -> dict[str, Any] | None:
+    """JSON object from a Strands tool result, or None if the call failed or was not an object."""
+    if not isinstance(result, dict) or result.get("status") == "error":
+        return None
+    for item in result.get("content", []):
+        if not isinstance(item, dict):
+            continue
+        if "json" in item and isinstance(item["json"], dict):
+            return item["json"]
+        if "text" in item:
+            try:
+                parsed: Any = json.loads(item["text"])
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+    return None
 
 
 def _dump(value: Any) -> str:

@@ -1,6 +1,7 @@
 """Deterministic policy engine and config loader."""
 
 from agentshield.policy.engine import PolicyEngine
+from agentshield.policy.facts import FactMap
 from agentshield.policy.loader import PolicyError, load_policy, parse_policy
 from agentshield.policy.models import (
     Effect,
@@ -15,6 +16,7 @@ from agentshield.policy.session import SessionState
 
 __all__ = [
     "Effect",
+    "FactMap",
     "Policy",
     "PolicyContext",
     "PolicyEngine",
