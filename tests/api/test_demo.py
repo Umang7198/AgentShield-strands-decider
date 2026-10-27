@@ -24,7 +24,10 @@ def test_desk_pages_and_state() -> None:
     home = c.get("/")
     assert home.status_code == 200
     assert b"Hearth" in home.content
+    assert b"/js/app.js" in home.content
     assert c.get("/review").status_code == 200
+    assert c.get("/css/app.css").status_code == 200
+    assert c.get("/js/app.js").status_code == 200
     state = c.get("/demo/state").json()
     assert state["store"] == "Hearth & Cable"
     assert state["supervisor"] == "Priya"

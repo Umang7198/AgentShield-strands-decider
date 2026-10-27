@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Hearth &amp; Cable · ShopHelp</title>
+  <link rel="stylesheet" href="/css/app.css"/>
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <h1 id="store">Hearth &amp; Cable</h1>
+        <p class="tagline">ShopHelp desk · Maya assists · Priya supervises</p>
+      </div>
+      <div class="top-meta">
+        <span class="chip" id="status-chip">Ready</span>
+        <span id="today"></span>
+        <button type="button" id="reset-btn">Reset</button>
+      </div>
+    </header>
+
+    <nav class="scenes" id="scenes" aria-label="Demo scenes"></nav>
+
+    <main class="grid">
+      <section class="pane chat-pane">
+        <h2>Customer chat</h2>
+        <div class="scroll" id="transcript"></div>
+        <form class="composer" id="composer">
+          <input id="prompt" autocomplete="off" placeholder="Message Maya as Sam or Ann…"/>
+          <button type="submit" id="send-btn">Send</button>
+        </form>
+      </section>
+
+      <section class="pane">
+        <h2>Gate tape</h2>
+        <div class="scroll" id="tape"></div>
+      </section>
+
+      <section class="pane">
+        <h2>Priya · supervisor</h2>
+        <div class="scroll" id="desk"></div>
+      </section>
+
+      <section class="pane">
+        <h2>Ops board</h2>
+        <div class="scroll" id="board"></div>
+      </section>
+    </main>
+  </div>
+  <script src="/js/app.js" defer></script>
+</body>
+</html>

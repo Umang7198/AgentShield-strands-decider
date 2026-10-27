@@ -6,13 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from agentshield.approvals.errors import ApprovalError, ApprovalNotFound, ApprovalNotPending
 from agentshield.shophelp.runtime import ShopHelpRuntime
 
-_DESK_HTML = (Path(__file__).resolve().parent / "desk.html").read_text(encoding="utf-8")
+FRONTEND = Path(__file__).resolve().parents[3] / "frontend"
 
 
 class ChatIn(BaseModel):
@@ -29,13 +30,16 @@ class ResolveIn(BaseModel):
 
 
 def mount_demo(app: FastAPI, runtime: ShopHelpRuntime) -> None:
-    @app.get("/", response_class=HTMLResponse)
-    def home() -> str:
-        return _DESK_HTML
+    app.mount("/css", StaticFiles(directory=FRONTEND / "css"), name="desk-css")
+    app.mount("/js", StaticFiles(directory=FRONTEND / "js"), name="desk-js")
 
-    @app.get("/review", response_class=HTMLResponse)
-    def review() -> str:
-        return _DESK_HTML
+    @app.get("/")
+    def home() -> FileResponse:
+        return FileResponse(FRONTEND / "index.html")
+
+    @app.get("/review")
+    def review() -> FileResponse:
+        return FileResponse(FRONTEND / "index.html")
 
     @app.get("/demo/state")
     def state() -> dict[str, Any]:

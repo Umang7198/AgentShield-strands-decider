@@ -1,4 +1,4 @@
-.PHONY: install test lint format typecheck decider decider-check llm-check demo eval eval-live
+.PHONY: install test lint format typecheck decider decider-check llm-check app demo eval eval-live
 
 DECIDER_MODEL ?= StrandsAgents/strands-decider-2B-qwen3.5-v1-2610
 DECIDER_PORT  ?= 8099
@@ -31,6 +31,10 @@ decider-check:
 # Check the host-agent LLM endpoint (reads .env).
 llm-check:
 	python scripts/check_llm.py
+
+# One process: desk UI + API. Starts the Decider too if :8099 is down.
+app:
+	python app.py
 
 # Interactive ShopHelp agent (needs .env; Decider at DECIDER_URL unless --fake-decider).
 demo:
