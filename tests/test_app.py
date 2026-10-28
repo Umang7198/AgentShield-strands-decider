@@ -15,3 +15,4 @@ def test_app_help() -> None:
     assert result.returncode == 0
     assert "frontend" in result.stdout.lower()
     assert "--fake-decider" in result.stdout
+    assert "--host" in result.stdout

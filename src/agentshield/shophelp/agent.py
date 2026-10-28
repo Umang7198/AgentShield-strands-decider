@@ -18,7 +18,7 @@ from agentshield.policy.engine import PolicyEngine
 from agentshield.policy.facts import FactMap
 from agentshield.policy.loader import load_policy
 from agentshield.policy.session import SessionState
-from agentshield.shophelp.store import ShopHelpStore
+from agentshield.shophelp.store import ShopHelpCatalogue, ShopHelpStore
 from agentshield.shophelp.tools import bind_tools
 
 POLICY_PATH = Path(__file__).resolve().parents[3] / "policies" / "shophelp.yaml"
@@ -57,7 +57,7 @@ same call with guessed values.
 class ShopHelpApp:
     agent: Agent
     handler: AgentShieldHandler
-    store: ShopHelpStore
+    store: ShopHelpCatalogue
     shield: Shield
     approvals: ApprovalDesk | None = None
 
@@ -67,7 +67,7 @@ def build_shophelp(
     checker: DeciderChecker,
     *,
     session: SessionState | None = None,
-    store: ShopHelpStore | None = None,
+    store: ShopHelpCatalogue | None = None,
     sinks: Sequence[AuditSink] = (),
     on_verdict: Callable[[Verdict], None] | None = None,
     approvals: ApprovalDesk | None = None,

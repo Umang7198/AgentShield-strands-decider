@@ -1,7 +1,15 @@
 """ShopHelp: Hearth & Cable support agent (primary demo scenario)."""
 
 from agentshield.shophelp.agent import SHOPHELP_FACTS, ShopHelpApp, build_shophelp
-from agentshield.shophelp.store import Customer, Order, ShopHelpError, ShopHelpStore, Ticket
+from agentshield.shophelp.sql_store import SqlShopHelpStore
+from agentshield.shophelp.store import (
+    Customer,
+    Order,
+    ShopHelpCatalogue,
+    ShopHelpError,
+    ShopHelpStore,
+    Ticket,
+)
 from agentshield.shophelp.tools import bind_tools
 from agentshield.shophelp.world import (
     AGENT_NAME,
@@ -18,8 +26,10 @@ __all__ = [
     "Customer",
     "Order",
     "ShopHelpApp",
+    "ShopHelpCatalogue",
     "ShopHelpError",
     "ShopHelpStore",
+    "SqlShopHelpStore",
     "Ticket",
     "bind_tools",
     "build_shophelp",

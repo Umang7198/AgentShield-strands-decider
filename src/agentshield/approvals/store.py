@@ -7,14 +7,14 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Protocol, runtime_checkable
 
-from sqlalchemy import DateTime, String, create_engine, select
+from sqlalchemy import DateTime, String, delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
-from sqlalchemy.pool import StaticPool
 from sqlalchemy.types import JSON
 
 from agentshield.approvals.errors import ApprovalNotFound
 from agentshield.approvals.models import Approval, ApprovalStatus
+from agentshield.db import engine_from_url
 
 
 @runtime_checkable
@@ -98,7 +98,7 @@ class SqlApprovalStore:
 
     @classmethod
     def from_url(cls, url: str) -> SqlApprovalStore:
-        return cls(_engine_from_url(url))
+        return cls(engine_from_url(url))
 
     @classmethod
     def sqlite(cls, path: str | Path) -> SqlApprovalStore:
@@ -146,11 +146,7 @@ class SqlApprovalStore:
         with Session(self._engine) as session:
             return [Approval.model_validate(row.body) for row in session.scalars(stmt)]
 
-
-def _engine_from_url(url: str) -> Engine:
-    kwargs: dict[str, Any] = {}
-    if url.startswith("sqlite"):
-        kwargs["connect_args"] = {"check_same_thread": False}
-        if url in ("sqlite://", "sqlite:///:memory:"):
-            kwargs["poolclass"] = StaticPool
-    return create_engine(url, **kwargs)
+    def clear(self) -> None:
+        with Session(self._engine) as session:
+            session.execute(delete(_ApprovalRow))
+            session.commit()

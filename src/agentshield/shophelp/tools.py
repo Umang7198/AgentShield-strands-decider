@@ -6,10 +6,10 @@ from typing import Any
 
 from strands import tool
 
-from agentshield.shophelp.store import ShopHelpStore
+from agentshield.shophelp.store import ShopHelpCatalogue
 
 
-def bind_tools(store: ShopHelpStore) -> list[Any]:
+def bind_tools(store: ShopHelpCatalogue) -> list[Any]:
     """Build the seven ShopHelp tools closed over ``store``.
 
     Returning a dict (not a sentence) so the fact binder can read ``total`` and ``email``

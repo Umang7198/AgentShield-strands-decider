@@ -1,4 +1,4 @@
-.PHONY: install test lint format typecheck decider decider-check llm-check app demo eval eval-live
+.PHONY: install test lint format typecheck decider decider-check llm-check app demo eval eval-live db-up db-down docker-up docker-down
 
 DECIDER_MODEL ?= StrandsAgents/strands-decider-2B-qwen3.5-v1-2610
 DECIDER_PORT  ?= 8099
@@ -32,7 +32,23 @@ decider-check:
 llm-check:
 	python scripts/check_llm.py
 
+# One container on a new machine: backend + frontend + SQLite.
+# Copy .env.example to .env first (LLM keys). Then: make docker-up
+docker-up:
+	docker compose up --build
+
+docker-down:
+	docker compose down
+
+# Optional Postgres (not required for docker-up). Then set DATABASE_URL.
+db-up:
+	docker compose --profile postgres up -d postgres
+
+db-down:
+	docker compose --profile postgres down
+
 # One process: desk UI + API. Starts the Decider too if :8099 is down.
+# Persists to sqlite:///agentshield.db unless DATABASE_URL is set.
 app:
 	python app.py
 

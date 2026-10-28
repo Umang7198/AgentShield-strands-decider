@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from agentshield.shophelp.world import (
     CUSTOMERS,
@@ -153,6 +153,26 @@ class Ticket:
 
 
 _CLOSED = frozenset({"cancelled", "delivered"})
+
+
+@runtime_checkable
+class ShopHelpCatalogue(Protocol):
+    """In-memory or SQL catalogue. Tools and the desk only need these methods."""
+
+    @property
+    def refunds(self) -> list[dict[str, Any]]: ...
+
+    @property
+    def emails(self) -> list[dict[str, str]]: ...
+
+    def snapshot(self) -> dict[str, Any]: ...
+    def get_order(self, order_id: str) -> dict[str, Any]: ...
+    def get_customer(self, customer_id: str) -> dict[str, Any]: ...
+    def send_email(self, to: str, subject: str, body: str) -> dict[str, str]: ...
+    def update_address(self, order_id: str, address: str) -> dict[str, Any]: ...
+    def cancel(self, order_id: str) -> dict[str, Any]: ...
+    def refund(self, order_id: str, amount: float) -> dict[str, Any]: ...
+    def delete_customer(self, customer_id: str) -> dict[str, str]: ...
 
 
 @dataclass

@@ -13,14 +13,14 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Protocol, runtime_checkable
 
-from sqlalchemy import DateTime, String, create_engine, select
+from sqlalchemy import DateTime, String, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
-from sqlalchemy.pool import StaticPool
 from sqlalchemy.types import JSON
 
 from agentshield.audit.record import AuditRecord
 from agentshield.core.models import Outcome
+from agentshield.db import engine_from_url
 
 
 @runtime_checkable
@@ -96,7 +96,7 @@ class SqlAuditLog:
 
     @classmethod
     def from_url(cls, url: str) -> SqlAuditLog:
-        return cls(_engine_from_url(url))
+        return cls(engine_from_url(url))
 
     @classmethod
     def sqlite(cls, path: str | Path) -> SqlAuditLog:
@@ -158,12 +158,3 @@ class FanoutAuditLog:
                 errors.append(exc)
         if errors:
             raise errors[0]
-
-
-def _engine_from_url(url: str) -> Engine:
-    kwargs: dict[str, Any] = {}
-    if url.startswith("sqlite"):
-        kwargs["connect_args"] = {"check_same_thread": False}
-        if url in ("sqlite://", "sqlite:///:memory:"):
-            kwargs["poolclass"] = StaticPool
-    return create_engine(url, **kwargs)

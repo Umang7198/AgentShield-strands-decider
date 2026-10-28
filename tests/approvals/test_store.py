@@ -31,3 +31,12 @@ def test_sqlite_roundtrip_and_update(tmp_path: Path) -> None:
     assert got.status is ApprovalStatus.APPROVED
     assert got.resolved_by == "alice"
     assert got.arguments == {"amount": 40}
+
+
+def test_sqlite_clear_drops_cards(tmp_path: Path) -> None:
+    store = SqlApprovalStore.sqlite(tmp_path / "a.db")
+    desk = ApprovalDesk(store)
+    desk.submit(_verdict(), SessionState("s"))
+    assert desk.pending()
+    store.clear()
+    assert desk.pending() == []

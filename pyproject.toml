@@ -14,6 +14,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "sqlalchemy>=2.0",
+    "python-dotenv>=1.0",
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp>=1.27",
@@ -29,6 +30,9 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
     "mypy>=1.10",
+]
+postgres = [
+    "psycopg[binary]>=3.2",
 ]
 
 # The Strands Decider model server is NOT a dependency of this package.
@@ -60,5 +64,6 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "live: needs the Decider server and/or a live LLM endpoint (deselect with -m 'not live')",
+    "postgres: needs DATABASE_URL pointing at a running Postgres (deselect with -m 'not postgres')",
 ]
 addopts = "-m 'not live'"

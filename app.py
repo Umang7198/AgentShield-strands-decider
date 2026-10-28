@@ -3,9 +3,12 @@
     python app.py
     python app.py --fake-decider
     python app.py --port 8080 --no-browser
+    docker compose up --build
 
 Open http://127.0.0.1:8080/ when it prints the desk URL.
 Needs OPENAI_API_KEY, OPENAI_BASE_URL and MODEL_ID in .env.
+Persists to sqlite:///agentshield.db unless DATABASE_URL is set.
+The Docker image binds 0.0.0.0 and uses FAKE_DECIDER=1 (SQLite in /data).
 """
 
 from __future__ import annotations
@@ -35,6 +38,10 @@ DECIDER_MODEL = os.environ.get("DECIDER_MODEL", "StrandsAgents/strands-decider-2
 DECIDER_DEVICE = os.environ.get("DECIDER_DEVICE", "mlx")
 
 _decider_proc: subprocess.Popen[bytes] | None = None
+
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _on_verdict() -> Callable[..., None]:
@@ -158,7 +165,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run ShopHelp: FastAPI backend + desk frontend in one process"
     )
-    parser.add_argument("--port", type=int, default=8080, help="desk UI and API port")
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("APP_HOST", "127.0.0.1"),
+        help="bind address (0.0.0.0 inside Docker)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("APP_PORT", "8080")),
+        help="desk UI and API port",
+    )
     parser.add_argument(
         "--fake-decider",
         action="store_true",
@@ -173,36 +190,43 @@ def main() -> int:
 
     from agentshield.api import create_app
     from agentshield.approvals import ApprovalDesk
+    from agentshield.db import Database, default_url, describe_url
     from agentshield.shophelp.runtime import ShopHelpRuntime, banner
 
     decider_url = _decider_url()
-    if not args.fake_decider:
+    fake = args.fake_decider or _env_flag("FAKE_DECIDER")
+    if not fake:
         ensure_decider(decider_url)
 
-    desk = ApprovalDesk()
+    db_url = default_url(ROOT)
+    db = Database.from_url(db_url)
+    desk = ApprovalDesk(db.approvals)
     runtime = ShopHelpRuntime(
         _model(),
-        _checker(args.fake_decider, decider_url),
+        _checker(fake, decider_url),
         approvals=desk,
         on_verdict=_on_verdict(),
+        persist=db,
     )
     api = create_app(desk, runtime=runtime)
-    url = f"http://127.0.0.1:{args.port}/"
+    public = f"http://127.0.0.1:{args.port}/"
     print(banner(), flush=True)
-    print(f"Desk UI + API: {url}", flush=True)
+    print(f"Database: {describe_url(db_url)}", flush=True)
+    print(f"Decider: {'fake' if fake else decider_url}", flush=True)
+    print(f"Desk UI + API: {public}", flush=True)
     print("Ctrl+C to stop.", flush=True)
 
     if not args.no_browser:
 
         def _open() -> None:
             time.sleep(0.6)
-            webbrowser.open(url)
+            webbrowser.open(public)
 
         threading.Thread(target=_open, daemon=True).start()
 
     import uvicorn
 
-    uvicorn.run(api, host="127.0.0.1", port=args.port, log_level="info")
+    uvicorn.run(api, host=args.host, port=args.port, log_level="info")
     return 0
 
 

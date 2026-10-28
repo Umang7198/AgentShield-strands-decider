@@ -8,14 +8,16 @@ from collections.abc import Callable
 from typing import Any
 
 from agentshield.approvals.desk import ApprovalDesk
+from agentshield.audit.record import AuditRecord
 from agentshield.audit.store import MemoryAuditLog
 from agentshield.core.models import Outcome
+from agentshield.db import Database, query_tape
 from agentshield.decider.checker import DeciderChecker
 from agentshield.integrations.strands_handler import messages_from_strands
 from agentshield.pipeline import Verdict
 from agentshield.policy.session import SessionState
 from agentshield.shophelp.agent import ShopHelpApp, build_shophelp
-from agentshield.shophelp.store import ShopHelpStore
+from agentshield.shophelp.store import ShopHelpCatalogue, ShopHelpStore
 from agentshield.shophelp.world import AGENT_NAME, SESSION_ID, STORE_NAME, SUPERVISOR_NAME, company
 
 VerdictListener = Callable[[Verdict], None]
@@ -96,7 +98,7 @@ SCENES: tuple[dict[str, str], ...] = (
 
 
 class ShopHelpRuntime:
-    """Process-local demo: rebuilds the store and agent on reset."""
+    """Live ShopHelp desk. Pass ``persist`` to keep catalogue, audit and approvals in SQL."""
 
     def __init__(
         self,
@@ -105,33 +107,55 @@ class ShopHelpRuntime:
         *,
         approvals: ApprovalDesk,
         on_verdict: VerdictListener | None = None,
+        persist: Database | None = None,
     ) -> None:
         self._model = model
         self._checker = checker
         self.approvals = approvals
         self._outer_on_verdict = on_verdict
+        self._persist = persist
         self._lock = threading.Lock()
-        self.log = MemoryAuditLog()
+        self.log: MemoryAuditLog | Any = persist.audit if persist is not None else MemoryAuditLog()
         self.tape: list[dict[str, Any]] = []
         self.transcript: list[dict[str, str]] = []
         self.app: ShopHelpApp
-        self.reset()
+        self._boot(hydrate_tape=True)
+
+    def _catalogue(self) -> ShopHelpCatalogue:
+        if self._persist is not None:
+            return self._persist.shophelp
+        return ShopHelpStore.seed()
+
+    def _build(self, store: ShopHelpCatalogue) -> ShopHelpApp:
+        return build_shophelp(
+            self._model,
+            self._checker,
+            store=store,
+            session=SessionState(SESSION_ID),
+            sinks=[self.log],
+            on_verdict=self._on_verdict,
+            approvals=self.approvals,
+        )
+
+    def _boot(self, *, hydrate_tape: bool) -> None:
+        store = self._catalogue()
+        self.transcript = []
+        if hydrate_tape and self._persist is not None:
+            rows = query_tape(self._persist, SESSION_ID)
+            self.tape = [_tape_from_record(row) for row in reversed(rows)]
+        else:
+            self.tape = []
+        self.app = self._build(store)
 
     def reset(self) -> dict[str, Any]:
         with self._lock:
             self.approvals.clear()
-            self.log = MemoryAuditLog()
-            self.tape = []
-            self.transcript = []
-            self.app = build_shophelp(
-                self._model,
-                self._checker,
-                store=ShopHelpStore.seed(),
-                session=SessionState(SESSION_ID),
-                sinks=[self.log],
-                on_verdict=self._on_verdict,
-                approvals=self.approvals,
-            )
+            if self._persist is not None:
+                self._persist.shophelp.reseed()
+                self._persist.mark_tape_reset()
+            else:
+                self.log = MemoryAuditLog()
+            self._boot(hydrate_tape=False)
         return self.state()
 
     def chat(self, text: str) -> dict[str, Any]:
@@ -229,6 +253,20 @@ class ShopHelpRuntime:
         self.tape.append(_tape_row(verdict))
         if self._outer_on_verdict is not None:
             self._outer_on_verdict(verdict)
+
+
+def _tape_from_record(record: AuditRecord) -> dict[str, Any]:
+    return {
+        "tool": record.tool,
+        "outcome": record.outcome.value,
+        "source": record.source.value,
+        "reason": record.reason,
+        "rule_id": record.rule_id,
+        "total_ms": round(record.total_ms, 1),
+        "checks": [
+            {"kind": c.kind.value, "subject": c.subject, "p_ok": c.p_ok} for c in record.checks
+        ],
+    }
 
 
 def _tape_row(verdict: Verdict) -> dict[str, Any]:

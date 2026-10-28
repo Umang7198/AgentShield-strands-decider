@@ -116,11 +116,18 @@ def main() -> int:
 
     from agentshield.api import create_app
     from agentshield.approvals import ApprovalDesk
+    from agentshield.db import Database, default_url, describe_url
     from agentshield.shophelp.runtime import ShopHelpRuntime, banner
 
-    desk = ApprovalDesk()
+    db = Database.from_url(default_url(ROOT))
+    print(f"Database: {describe_url(db.url)}")
+    desk = ApprovalDesk(db.approvals)
     runtime = ShopHelpRuntime(
-        _model(), _checker(args.fake_decider), approvals=desk, on_verdict=_on_verdict()
+        _model(),
+        _checker(args.fake_decider),
+        approvals=desk,
+        on_verdict=_on_verdict(),
+        persist=db,
     )
     print(banner())
     if args.port:
