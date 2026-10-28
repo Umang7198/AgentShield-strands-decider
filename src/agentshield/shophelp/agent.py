@@ -11,6 +11,7 @@ from strands import Agent
 
 from agentshield.approvals.desk import ApprovalDesk
 from agentshield.audit.store import AuditSink
+from agentshield.core.thresholds_io import load_thresholds
 from agentshield.decider.checker import DeciderChecker
 from agentshield.integrations.strands_handler import AgentShieldHandler
 from agentshield.pipeline import Shield, Verdict
@@ -18,6 +19,7 @@ from agentshield.policy.engine import PolicyEngine
 from agentshield.policy.facts import FactMap
 from agentshield.policy.loader import load_policy
 from agentshield.policy.session import SessionState
+from agentshield.shophelp.handbook_rag import build_handbook_rag
 from agentshield.shophelp.store import ShopHelpCatalogue, ShopHelpStore
 from agentshield.shophelp.tools import bind_tools
 
@@ -50,6 +52,10 @@ Rules:
 - If a tool is denied or you are told to clarify, follow that instruction. Do not retry the \
 same call with guessed values.
 - Never claim a refund, cancel, email or address change happened unless a tool result shows it.
+- For return-window, shipping, or refund-policy questions, call lookup_handbook first and \
+answer only from those passages. If it abstains, say you do not have enough handbook evidence. \
+Example: "How long do I have to return a kettle?" -> lookup_handbook, then quote the 14-day window. \
+Do not invent handbook rules.
 """
 
 
@@ -80,6 +86,7 @@ def build_shophelp(
         checker,
         agent_id="shophelp",
         sinks=sinks,
+        thresholds=load_thresholds(),
     )
     handler = AgentShieldHandler(
         shield,
@@ -90,7 +97,7 @@ def build_shophelp(
     )
     agent = Agent(
         model=model,
-        tools=bind_tools(store),
+        tools=bind_tools(store, rag=build_handbook_rag(checker)),
         interventions=[handler],
         system_prompt=SYSTEM_PROMPT,
         callback_handler=None,

@@ -31,7 +31,7 @@ def test_desk_pages_and_state() -> None:
     state = c.get("/demo/state").json()
     assert state["store"] == "Hearth & Cable"
     assert state["supervisor"] == "Priya"
-    assert len(state["scenes"]) == 10
+    assert len(state["scenes"]) == 11
 
 
 def test_chat_while_paused_returns_200() -> None:

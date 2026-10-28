@@ -8,7 +8,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from agentshield.core.matrix import Thresholds
 from agentshield.core.models import DecisionSource, Outcome
+from agentshield.core.thresholds_io import load_thresholds
 from agentshield.decider.checker import DeciderChecker
 from agentshield.decider.fake import FakeDeciderClient
 from agentshield.eval.metrics import EvalRow
@@ -53,22 +55,26 @@ class EvalHarness:
         checker: DeciderChecker,
         *,
         policy_path: Path | None = None,
+        thresholds: Thresholds | None = None,
     ) -> None:
         policy = load_policy(policy_path or POLICY_PATH)
+        self._thresholds = thresholds if thresholds is not None else load_thresholds()
         self._full = PolicyEngine(policy)
         self._decider_only = PolicyEngine(
             policy.model_copy(update={"rules": (), "default_for_unknown_tools": "allow"})
         )
         self._checker = checker
-        self._shield = Shield(self._full, checker, agent_id="eval")
-        self._decider_shield = Shield(self._decider_only, checker, agent_id="eval")
+        self._shield = Shield(self._full, checker, agent_id="eval", thresholds=self._thresholds)
+        self._decider_shield = Shield(
+            self._decider_only, checker, agent_id="eval", thresholds=self._thresholds
+        )
 
     async def run_one(self, scenario: Scenario, mode: Mode) -> EvalRow:
         started = time.perf_counter()
         if scenario.kind == "claim":
-            predicted, source, reason, checks = await self._run_claim(scenario, mode)
+            predicted, source, reason, checks, input_tokens = await self._run_claim(scenario, mode)
         else:
-            predicted, source, reason, checks = await self._run_call(scenario, mode)
+            predicted, source, reason, checks, input_tokens = await self._run_call(scenario, mode)
         elapsed = (time.perf_counter() - started) * 1000
         gold = {c.id: c.ok for c in scenario.checks}
         scored = []
@@ -91,61 +97,76 @@ class EvalHarness:
             reason=reason,
             total_ms=elapsed,
             check_scores=tuple(scored),
+            input_tokens=input_tokens,
         )
 
     async def run(
         self, scenarios: Sequence[Scenario], modes: Sequence[Mode] = (Mode.FULL,)
     ) -> dict[str, tuple[EvalRow, ...]]:
         out: dict[str, list[EvalRow]] = {m.value: [] for m in modes}
-        for scenario in scenarios:
+        total = len(scenarios)
+        for i, scenario in enumerate(scenarios, 1):
             for mode in modes:
                 out[mode.value].append(await self.run_one(scenario, mode))
+            if i == 1 or i % 10 == 0 or i == total:
+                print(f"  {i}/{total} {scenario.id}", flush=True)
         return {k: tuple(v) for k, v in out.items()}
 
     async def _run_call(
         self, scenario: Scenario, mode: Mode
-    ) -> tuple[Outcome, DecisionSource | None, str, tuple[Any, ...]]:
+    ) -> tuple[Outcome, DecisionSource | None, str, tuple[Any, ...], int | None]:
         assert scenario.call is not None
         call = scenario.call
         session = session_for(scenario)
         if mode is Mode.NONE:
-            return Outcome.ALLOW, None, "no gate", ()
+            return Outcome.ALLOW, None, "no gate", (), None
         if mode is Mode.POLICY:
             result = self._full.evaluate(call, session.context())
             if result.decision is not None:
                 d = result.decision
-                return d.outcome, d.source, d.reason, ()
+                return d.outcome, d.source, d.reason, (), None
             return (
                 Outcome.ALLOW,
                 DecisionSource.POLICY,
                 "No policy rule triggered",
                 (),
+                None,
             )
         shield = self._shield if mode is Mode.FULL else self._decider_shield
         verdict = await shield.evaluate(call, scenario.messages, session)
         d = verdict.decision
-        return d.outcome, d.source, d.reason, verdict.run.checks if verdict.run else ()
+        tokens = verdict.run.input_tokens if verdict.run else None
+        return d.outcome, d.source, d.reason, verdict.run.checks if verdict.run else (), tokens
 
     async def _run_claim(
         self, scenario: Scenario, mode: Mode
-    ) -> tuple[Outcome, DecisionSource | None, str, tuple[Any, ...]]:
+    ) -> tuple[Outcome, DecisionSource | None, str, tuple[Any, ...], int | None]:
         assert scenario.claim is not None
         if mode in (Mode.NONE, Mode.POLICY):
-            return Outcome.ALLOW, None, "claims are not visible to this ablation", ()
+            return Outcome.ALLOW, None, "claims are not visible to this ablation", (), None
         verdict = await self._shield.evaluate_claim(scenario.claim, scenario.messages)
         d = verdict.decision
-        return d.outcome, d.source, d.reason, verdict.run.checks if verdict.run else ()
+        tokens = verdict.run.input_tokens if verdict.run else None
+        return d.outcome, d.source, d.reason, verdict.run.checks if verdict.run else (), tokens
 
 
 class OracleHarness(EvalHarness):
     """Each scenario gets a Decider that returns its own gold labels. Tests the matrix and policy,
     not the live model."""
 
-    def __init__(self, *, policy_path: Path | None = None) -> None:
-        super().__init__(DeciderChecker(FakeDeciderClient()), policy_path=policy_path)
+    def __init__(
+        self, *, policy_path: Path | None = None, thresholds: Thresholds | None = None
+    ) -> None:
+        super().__init__(
+            DeciderChecker(FakeDeciderClient()), policy_path=policy_path, thresholds=thresholds
+        )
 
     async def run_one(self, scenario: Scenario, mode: Mode) -> EvalRow:
         self._checker = DeciderChecker(FakeDeciderClient(oracle_script(scenario.checks)))
-        self._shield = Shield(self._full, self._checker, agent_id="eval")
-        self._decider_shield = Shield(self._decider_only, self._checker, agent_id="eval")
+        self._shield = Shield(
+            self._full, self._checker, agent_id="eval", thresholds=self._thresholds
+        )
+        self._decider_shield = Shield(
+            self._decider_only, self._checker, agent_id="eval", thresholds=self._thresholds
+        )
         return await super().run_one(scenario, mode)

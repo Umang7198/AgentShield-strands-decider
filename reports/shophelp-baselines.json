@@ -1,0 +1,46 @@
+{
+  "live_meta": {
+    "backend": "live http://127.0.0.1:8099",
+    "question_set_version": "v2",
+    "decider_model": "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610",
+    "hardware": {
+      "system": "Darwin",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.12.13",
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "mac_chip": "Apple M4",
+      "mac_mem_gb": 16.0
+    },
+    "split": "all",
+    "n_limit": 0
+  },
+  "judge_meta": {
+    "backend": "llm-judge claude-sonnet-4.6",
+    "question_set_version": "v2",
+    "decider_model": "claude-sonnet-4.6",
+    "hardware": {
+      "system": "Darwin",
+      "machine": "arm64",
+      "processor": "arm",
+      "python": "3.12.13",
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "mac_chip": "Apple M4",
+      "mac_mem_gb": 16.0
+    },
+    "split": "all",
+    "judge_model": "claude-sonnet-4.6",
+    "base_url": "https://aigateway.aivar.app/v1",
+    "prices": {
+      "input_per_1m": 0.15,
+      "output_per_1m": 0.6,
+      "model_note": "OpenAI-compatible host LLM from .env (MODEL_ID). Update if the gateway changes."
+    },
+    "tokens": {
+      "input": 119871,
+      "output": 9608,
+      "calls": 352
+    },
+    "estimated_usd": 0.023745
+  }
+}

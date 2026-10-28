@@ -1,0 +1,6 @@
+# Documented list prices used to estimate LLM-judge cost (USD per 1M tokens).
+# Override with LLM_JUDGE_INPUT_PER_1M / LLM_JUDGE_OUTPUT_PER_1M.
+# These are representative hosted-small-model rates, not a vendor quote for this run.
+model_note: "OpenAI-compatible host LLM from .env (MODEL_ID). Update if the gateway changes."
+input_per_1m: 0.15
+output_per_1m: 0.60

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict
 
 from agentshield.core.models import CheckResult, ToolCall
-from agentshield.decider.client import DeciderClient, DeciderResponse
+from agentshield.decider.client import DeciderClient, DeciderResponse, NoulQuestion
 from agentshield.decider.errors import DeciderBadResponse
 from agentshield.decider.questions import (
     DEFAULT_MAX_ARGUMENT_CHECKS,
@@ -30,6 +30,7 @@ class CheckRun(BaseModel):
     model: str | None = None
     wall_latency_ms: float
     server_latency_ms: float | None = None
+    input_tokens: int | None = None
 
 
 class DeciderChecker:
@@ -49,6 +50,10 @@ class DeciderChecker:
         self._client = client
         self._budget = budget or StateBudget()
         self._max_argument_checks = max_argument_checks
+
+    async def ask(self, state: str, questions: Mapping[str, NoulQuestion]) -> DeciderResponse:
+        """Raw noul questions (used by handbook RAG; not a tool-gate CheckRun)."""
+        return await self._client.ask(state, questions)
 
     async def check_call(
         self,
@@ -92,4 +97,5 @@ class DeciderChecker:
             model=response.model,
             wall_latency_ms=response.wall_latency_ms,
             server_latency_ms=response.server_latency_ms,
+            input_tokens=response.input_tokens,
         )

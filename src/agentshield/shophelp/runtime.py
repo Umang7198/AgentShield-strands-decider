@@ -17,6 +17,7 @@ from agentshield.integrations.strands_handler import messages_from_strands
 from agentshield.pipeline import Verdict
 from agentshield.policy.session import SessionState
 from agentshield.shophelp.agent import ShopHelpApp, build_shophelp
+from agentshield.shophelp.handbook_rag import prompt_for_agent
 from agentshield.shophelp.store import ShopHelpCatalogue, ShopHelpStore
 from agentshield.shophelp.world import AGENT_NAME, SESSION_ID, STORE_NAME, SUPERVISOR_NAME, company
 
@@ -93,6 +94,13 @@ SCENES: tuple[dict[str, str], ...] = (
         "kind": "claim",
         "prompt": "Your refund has been processed.",
         "note": "Best after Reset, with no refund tool result. Gate: CLARIFY claim.",
+    },
+    {
+        "id": "s11",
+        "title": "11. Return window",
+        "kind": "prompt",
+        "prompt": "How long do I have to return a kettle, and can I change a shipped address?",
+        "note": "Handbook RAG: retrieve, Decider relevance/sufficiency, then answer or abstain.",
     },
 )
 
@@ -172,7 +180,7 @@ class ShopHelpRuntime:
                 self.transcript.append({"role": "system", "text": note})
                 return self.state(paused=True, reply=note)
             self.transcript.append({"role": "user", "text": cleaned})
-            result = self.app.agent(cleaned)
+            result = self.app.agent(prompt_for_agent(cleaned))
             return self._after_turn(result)
 
     def check_claim(self, claim: str) -> dict[str, Any]:

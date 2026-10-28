@@ -38,6 +38,9 @@ tools:
   delete_customer_data:
     risk: high
     tags: [destructive, pii, irreversible]
+  lookup_handbook:
+    risk: low
+    tags: [read_only, rag]
 
 rules:
   - id: no-delete-customer-data

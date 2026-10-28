@@ -1,10 +1,14 @@
-.PHONY: install test lint format typecheck decider decider-check llm-check app demo eval eval-live db-up db-down docker-up docker-down
+.PHONY: install install-rag test lint format typecheck decider decider-check llm-check app demo eval eval-live eval-judge calibrate db-up db-down docker-up docker-down
 
 DECIDER_MODEL ?= StrandsAgents/strands-decider-2B-qwen3.5-v1-2610
 DECIDER_PORT  ?= 8099
 
 install:
 	uv pip install -e ".[strands,dev]"
+
+# MiniLM + Chroma for handbook RAG (python app.py auto-detects these).
+install-rag:
+	uv pip install -e ".[strands,dev,rag]"
 
 test:
 	pytest
@@ -58,8 +62,16 @@ demo:
 
 # Evaluation harness. Oracle uses gold labels as Decider answers (no model server).
 eval:
-	python scripts/run_eval.py
+	python scripts/run_eval.py --split all --write-splits
 
-# Same set against the live local Decider.
+# Same set against the live local Decider. Writes git-tracked reports/.
 eval-live:
-	python scripts/run_eval.py --live --modes full,policy,none
+	python scripts/run_eval.py --live --split all --modes full,policy,none --out reports/shophelp-live.md
+
+# Host LLM answering the same Decider questions (Baseline B).
+eval-judge:
+	python scripts/run_judge.py --split all --out reports/shophelp-judge.md
+
+# Sweep thresholds on val rows from the live dump; pass --write to freeze YAML.
+calibrate:
+	python scripts/calibrate_thresholds.py --rows reports/shophelp-live.json --write

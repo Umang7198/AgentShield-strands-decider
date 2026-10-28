@@ -6,11 +6,12 @@ from typing import Any
 
 from strands import tool
 
+from agentshield.rag import PolicyRag, RagAction
 from agentshield.shophelp.store import ShopHelpCatalogue
 
 
-def bind_tools(store: ShopHelpCatalogue) -> list[Any]:
-    """Build the seven ShopHelp tools closed over ``store``.
+def bind_tools(store: ShopHelpCatalogue, rag: PolicyRag | None = None) -> list[Any]:
+    """Build ShopHelp tools closed over ``store`` (and optional handbook RAG).
 
     Returning a dict (not a sentence) so the fact binder can read ``total`` and ``email``
     without scraping prose.
@@ -51,7 +52,7 @@ def bind_tools(store: ShopHelpCatalogue) -> list[Any]:
         """Permanently delete a customer's personal data. Not permitted for this agent."""
         return store.delete_customer(customer_id)
 
-    return [
+    tools = [
         get_order_status,
         get_customer_profile,
         send_customer_email,
@@ -60,3 +61,39 @@ def bind_tools(store: ShopHelpCatalogue) -> list[Any]:
         issue_refund,
         delete_customer_data,
     ]
+    if rag is None:
+        return tools
+
+    handbook = rag
+
+    @tool
+    async def lookup_handbook(question: str) -> dict[str, Any]:
+        """Look up Hearth & Cable return, shipping, and refund policy. Use before answering policy questions."""
+        result = await handbook.answer(question)
+        if result.action is RagAction.ABSTAIN:
+            return {
+                "ok": False,
+                "decision": "abstain",
+                "retried": result.retried,
+                "reason": result.reason,
+                "p_relevance": result.p_relevance,
+                "p_sufficient": result.p_sufficient,
+                "instruction": (
+                    "You do not have enough handbook evidence. Say so. Do not invent policy."
+                ),
+            }
+        return {
+            "ok": True,
+            "decision": "generate",
+            "retried": result.retried,
+            "reason": result.reason,
+            "p_relevance": result.p_relevance,
+            "p_sufficient": result.p_sufficient,
+            "passages": [
+                {"id": p.id, "title": p.title, "text": p.text, "source": p.source}
+                for p in result.passages
+            ],
+            "instruction": "Answer using only these passages. If something is missing, say so.",
+        }
+
+    return [*tools, lookup_handbook]

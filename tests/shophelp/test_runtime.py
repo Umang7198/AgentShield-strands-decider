@@ -28,7 +28,16 @@ def test_board_is_hearth_and_cable() -> None:
     assert orders["A1001"]["status"] == "shipped"
     assert orders["A1001"]["ticket_id"] == "T-1042"
     assert orders["A3003"]["within_return_window"] is False
-    assert len(SCENES) == 10
+    assert len(SCENES) == 11
+
+
+def test_policy_nudge_is_not_shown_in_the_transcript() -> None:
+    runtime = make(final="14-day window from delivery.")
+    state = runtime.chat("How long do I have to return a kettle?")
+    user = next(row for row in state["transcript"] if row["role"] == "user")
+    assert user["text"] == "How long do I have to return a kettle?"
+    assert "lookup_handbook" not in user["text"]
+    assert "[Gate]" not in user["text"]
 
 
 def test_reset_restores_the_catalogue() -> None:

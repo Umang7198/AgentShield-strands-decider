@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
-from agentshield.eval.metrics import Metrics
+from agentshield.eval.metrics import EvalRow, Metrics
 from agentshield.eval.scenario import Scenario
 
 
@@ -17,6 +19,7 @@ def render(
     n_scenarios: int,
     backend: str,
     extra: str = "",
+    meta: Mapping[str, Any] | None = None,
 ) -> str:
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
@@ -29,13 +32,55 @@ def render(
         "Gold labels are for the **full** pipeline (policy, then Decider, then the decision matrix).",
         "Ablations reuse the same labels so the gaps are visible.",
         "",
-        extra.rstrip(),
-        "",
     ]
+    if meta:
+        lines.extend(_meta_lines(meta))
+        lines.append("")
+    if extra:
+        lines.append(extra.rstrip())
+        lines.append("")
     for mode, m in metrics.items():
         lines.extend(_section(mode, m))
     lines.extend(_compare(metrics))
     return "\n".join(line for line in lines if line is not None) + "\n"
+
+
+def _meta_lines(meta: Mapping[str, Any]) -> list[str]:
+    lines = ["## Run metadata", ""]
+    qv = meta.get("question_set_version")
+    if qv:
+        lines.append(f"- Question set: `{qv}`")
+    model = meta.get("decider_model") or meta.get("judge_model")
+    if model:
+        lines.append(f"- Model: `{model}`")
+    split = meta.get("split")
+    if split:
+        lines.append(f"- Split: `{split}`")
+    hw = meta.get("hardware")
+    if isinstance(hw, dict):
+        chip = hw.get("mac_chip") or hw.get("processor") or hw.get("machine")
+        mem = hw.get("mac_mem_gb")
+        plat = hw.get("platform") or hw.get("system")
+        bits = [str(x) for x in (chip, f"{mem} GB" if mem else None, plat) if x]
+        if bits:
+            lines.append(f"- Hardware: {', '.join(bits)}")
+    cost = meta.get("estimated_usd")
+    if cost is not None:
+        lines.append(f"- Estimated cost: ${float(cost):.4f} USD")
+        prices = meta.get("prices")
+        if isinstance(prices, dict):
+            lines.append(
+                f"- Price table: ${prices.get('input_per_1m')}/1M input, "
+                f"${prices.get('output_per_1m')}/1M output"
+                + (f" ({prices.get('model_note')})" if prices.get("model_note") else "")
+            )
+    tokens = meta.get("tokens")
+    if isinstance(tokens, dict):
+        lines.append(
+            f"- Tokens: input={tokens.get('input', 0)}, output={tokens.get('output', 0)}, "
+            f"calls={tokens.get('calls', 0)}"
+        )
+    return lines
 
 
 def _section(mode: str, m: Metrics) -> list[str]:
@@ -114,6 +159,38 @@ def _compare(metrics: dict[str, Metrics]) -> list[str]:
 def write_report(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def dump_eval_json(
+    path: Path,
+    *,
+    metrics: Mapping[str, Metrics],
+    rows: Mapping[str, Sequence[EvalRow]],
+    meta: Mapping[str, Any],
+    n_scenarios: int,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "n_scenarios": n_scenarios,
+        "meta": dict(meta),
+        "metrics": {name: m.model_dump(mode="json") for name, m in metrics.items()},
+        "rows": {
+            name: [row.model_dump(mode="json") for row in mode_rows]
+            for name, mode_rows in rows.items()
+        },
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def load_eval_json(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} is not a JSON object")
+    return data
+
+
+def rows_from_dump(payload: Mapping[str, Any], mode: str = "full") -> tuple[EvalRow, ...]:
+    return tuple(EvalRow.model_validate(row) for row in payload["rows"][mode])
 
 
 def dataset_summary(scenarios: Sequence[Scenario]) -> str:

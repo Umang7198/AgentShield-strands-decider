@@ -34,12 +34,19 @@ dev = [
 postgres = [
     "psycopg[binary]>=3.2",
 ]
+rag = [
+    "chromadb>=0.5",
+    "sentence-transformers>=3.0",
+]
 
 # The Strands Decider model server is NOT a dependency of this package.
 # It runs as a separate HTTP service (see Makefile: `make decider`).
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+agentshield = ["shophelp/handbook/*.md"]
 
 [tool.ruff]
 line-length = 100

@@ -27,6 +27,7 @@ class TestShopHelpFile:
         assert policy.default_for_unknown_tools == "block"
         assert policy.tools["issue_refund"].risk is RiskTier.HIGH
         assert policy.tools["get_order_status"].risk is RiskTier.LOW
+        assert policy.tools["lookup_handbook"].risk is RiskTier.LOW
         assert len(policy.rules) == 10
 
     def test_rule_ids_are_unique(self) -> None:

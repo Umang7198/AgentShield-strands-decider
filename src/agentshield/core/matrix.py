@@ -12,9 +12,9 @@ Rules, evaluated in order:
 
 Thresholds are per risk tier **and per check kind**, because the checks are not equally reliable:
 measured on the live Decider, argument grounding separates good from bad calls cleanly, while
-consent overlaps much more, so consent needs a stricter bar. The defaults below are provisional
-starting points taken from a 15-scenario measurement; they are meant to be re-calibrated on the
-evaluation set, which is why they live in :class:`Thresholds` and are configurable.
+consent overlaps much more, so consent needs a stricter bar. Frozen values live in
+``policies/thresholds.yaml`` (chosen on val, applied on test). The dataclass defaults below are
+the fallback if that file is missing.
 """
 
 from __future__ import annotations

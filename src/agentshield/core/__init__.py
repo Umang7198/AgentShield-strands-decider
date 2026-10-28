@@ -10,6 +10,7 @@ from agentshield.core.models import (
     RiskTier,
     ToolCall,
 )
+from agentshield.core.thresholds_io import load_thresholds, write_thresholds
 
 __all__ = [
     "CheckKind",
@@ -23,5 +24,7 @@ __all__ = [
     "ToolCall",
     "decide",
     "fallback_decision",
+    "load_thresholds",
     "weakest",
+    "write_thresholds",
 ]

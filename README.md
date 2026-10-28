@@ -90,7 +90,7 @@ flowchart TB
 
 1. **Policy** (`policies/shophelp.yaml`) — first, always. Unknown tools **block**. `$ctx` argument comparisons fail closed if the agent skipped lookup. `when.facts` does *not* fail closed, so “cancel it” before lookup still reaches consent checks instead of a silent policy miss.
 2. **Decider** — argument grounding, consent, optional premature-action, claim grounding on Maya’s prose (synthetic tool `agent_claim`).
-3. **Matrix** — weakest check `p_ok ≤ 0.05` → **BLOCK**; **HIGH** risk → **REQUIRE_APPROVAL**; all checks above per-kind thresholds → **ALLOW**; else **CLARIFY**.
+3. **Matrix** — weakest check `p_ok ≤ block_below` → **BLOCK**; **HIGH** risk → **REQUIRE_APPROVAL**; all checks above frozen per-kind bars in `policies/thresholds.yaml` → **ALLOW**; else **CLARIFY**.
 
 The Shield is framework-agnostic (`ToolCall` in, `Verdict` out). [Strands Agents](https://github.com/strands-agents/sdk-python) is the adapter: `Proceed` / `Guide` / interrupt / `Deny`.
 
@@ -121,10 +121,14 @@ src/agentshield/
   decider/             HTTP client, checks, questions
   approvals/           HITL desk + store
   audit/               append-only records
-  shophelp/            world, tools, runtime
+  shophelp/            world, tools, handbook RAG
   eval/                labelled scenarios + ablations
+  rag/                 handbook retrieve + Decider sufficiency
   api/                 FastAPI + static UI
   db.py                SQLAlchemy bundle
+docs/                  architecture, threat model, benchmark write-up
+reports/               git-tracked live eval JSON+markdown
+eval/splits.json       frozen val/test assignment
 ```
 
 Persistence (SQLAlchemy, SQLite by default, Postgres optional): ShopHelp catalogue, append-only **audit_records**, **approvals**. Demo **Reset** reseeds the shop and clears the tape cursor; it does not wipe audit history.
@@ -139,6 +143,7 @@ Full commands, Docker, and troubleshooting: **[setup.md](setup.md)**.
 cp .env.example .env          # OPENAI_API_KEY, OPENAI_BASE_URL, MODEL_ID
 python3.12 -m venv .venv && source .venv/bin/activate
 uv pip install -e ".[strands,dev]"
+uv pip install -e ".[rag]"    # MiniLM + Chroma for handbook lookup (optional)
 pip install strands-decider
 python app.py                 # http://127.0.0.1:8080/
 ```
@@ -160,14 +165,18 @@ Python **3.12** only. The host LLM is any OpenAI-compatible gateway; the Decider
 
 ## Evaluation
 
-`src/agentshield/eval/` is a labelled ShopHelp set (lookups, cancels, refunds, emails, injections, ungrounded claims, handwritten edges). Gold labels are for the **full** pipeline.
+`src/agentshield/eval/` is a labelled ShopHelp set (lookups, cancels, refunds, emails, injections, ungrounded claims, handwritten edges). Gold labels are for the **full** pipeline. Val/test split is frozen in `eval/splits.json` (seed 42; paraphrase rows stay together).
 
 ```bash
 make eval           # oracle: gold labels as Decider answers — no model server
-make eval-live      # same set against the live 2B on :8099
+make eval-live      # live 2B → reports/shophelp-live.md
+make eval-judge     # host LLM answers the same noul questions
+make calibrate      # val sweep → policies/thresholds.yaml
 ```
 
-Ablations: `full` · `policy` (rules only) · `decider` (skip YAML) · `none` (never stop). Reports include stop precision/recall, false-allow, calibration, latency.
+Ablations: `full` · `policy` (rules only) · `decider` (skip YAML) · `none` (never stop). Live numbers (accuracy, false-allow, ECE, p50/p95, cost vs judge) are git-tracked under `reports/`.
+
+On Apple M4, question set v2, n=194: **full 96.4%** exact match, 1.8% false-stop, 4.3% missed violation, p95 585 ms. Policy-only misses 74% of gold stops. The host LLM judge is slower (p95 2.2 s) and over-blocks (56% 4-way) even though consent-check accuracy is higher. Write-up: **[docs/benchmark-results.md](docs/benchmark-results.md)** · **[docs/architecture.md](docs/architecture.md)** · **[docs/threat-model.md](docs/threat-model.md)**.
 
 ---
 
@@ -180,7 +189,7 @@ Ablations: `full` · `policy` (rules only) · `decider` (skip YAML) · `none` (n
 | API / UI | FastAPI, static desk in `frontend/` |
 | Data | SQLAlchemy → SQLite or Postgres |
 | Observability | OpenTelemetry traces/metrics (optional OTLP) |
-| Tests | pytest, ruff, mypy |
+| Tests | pytest, ruff, mypy, GitHub Actions (`not live`) |
 
 ---
 

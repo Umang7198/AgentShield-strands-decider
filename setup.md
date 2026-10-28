@@ -57,6 +57,7 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 uv pip install -e ".[strands,dev]"
 # or: pip install -e ".[strands,dev]"
+uv pip install -e ".[rag]"    # optional: MiniLM + Chroma for lookup_handbook
 pip install strands-decider
 ```
 
@@ -186,8 +187,20 @@ From the app container, use host `postgres` and profile networking, not `127.0.0
 source .venv/bin/activate
 make test          # pytest (skips live Decider / LLM)
 make eval          # oracle eval, no model server
-make eval-live     # against the local Decider on :8099
+make eval-live     # against the local Decider on :8099 → reports/
+make eval-judge    # host LLM baseline (needs .env)
+make calibrate     # freeze policies/thresholds.yaml from the live dump
 ```
+
+Live eval reads `DECIDER_URL`. If `.env` was set for Docker (`host.docker.internal`), override it for a local run:
+
+```bash
+DECIDER_URL=http://127.0.0.1:8099 make eval-live
+```
+
+Handbook RAG: `python app.py` uses MiniLM + Chroma when `.[rag]` is installed (`make install-rag`). Without it, lookup still works with a hash embedder. Pytest always forces the hash path.
+
+Docs: [architecture](docs/architecture.md), [threat model](docs/threat-model.md), [benchmark results](docs/benchmark-results.md).
 
 ---
 
