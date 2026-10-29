@@ -16,8 +16,9 @@ from agentshield.decider.checker import DeciderChecker
 from agentshield.integrations.strands_handler import messages_from_strands
 from agentshield.pipeline import Verdict
 from agentshield.policy.session import SessionState
+from agentshield.rag import RagAction, RagAnswer
 from agentshield.shophelp.agent import ShopHelpApp, build_shophelp
-from agentshield.shophelp.handbook_rag import prompt_for_agent
+from agentshield.shophelp.handbook_rag import force_hash, prompt_for_agent
 from agentshield.shophelp.store import ShopHelpCatalogue, ShopHelpStore
 from agentshield.shophelp.world import AGENT_NAME, SESSION_ID, STORE_NAME, SUPERVISOR_NAME, company
 
@@ -142,6 +143,7 @@ class ShopHelpRuntime:
             session=SessionState(SESSION_ID),
             sinks=[self.log],
             on_verdict=self._on_verdict,
+            on_rag=self._on_rag,
             approvals=self.approvals,
         )
 
@@ -262,6 +264,16 @@ class ShopHelpRuntime:
         if self._outer_on_verdict is not None:
             self._outer_on_verdict(verdict)
 
+    def _on_rag(self, answer: RagAnswer) -> None:
+        self.tape.append(_rag_tape_row(answer))
+        if force_hash():
+            return
+        print(
+            f"  [rag]  {answer.action.value:17} handbook_evidence      "
+            f"rag      {answer.total_ms:6.0f}ms  {answer.reason}",
+            flush=True,
+        )
+
 
 def _tape_from_record(record: AuditRecord) -> dict[str, Any]:
     return {
@@ -296,6 +308,26 @@ def _tape_row(verdict: Verdict) -> dict[str, Any]:
         "reason": decision.reason,
         "rule_id": decision.rule_id,
         "total_ms": round(verdict.total_ms, 1),
+        "checks": checks,
+    }
+
+
+def _rag_tape_row(answer: RagAnswer) -> dict[str, Any]:
+    """Evidence scores from inside lookup_handbook (not the tool-gate consent row)."""
+    outcome = Outcome.ALLOW if answer.action is RagAction.GENERATE else Outcome.CLARIFY
+    checks = []
+    if answer.p_relevance is not None:
+        checks.append({"kind": "relevance", "subject": None, "p_ok": answer.p_relevance})
+    if answer.p_sufficient is not None:
+        checks.append({"kind": "sufficiency", "subject": None, "p_ok": answer.p_sufficient})
+    return {
+        "tool": "handbook_evidence",
+        "outcome": outcome.value,
+        "source": "rag",
+        "reason": answer.reason,
+        "rule_id": None,
+        "total_ms": round(answer.total_ms, 1),
+        "retried": answer.retried,
         "checks": checks,
     }
 

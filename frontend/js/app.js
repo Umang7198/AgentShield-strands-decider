@@ -96,6 +96,18 @@ function setBusy(busy, paused) {
   send.disabled = busy || paused;
 }
 
+function checksHtml(row) {
+  const checks = row.checks || [];
+  if (!checks.length && !row.retried) return "";
+  const bits = checks.map((c) => {
+    const name = c.subject ? `${c.kind}[${c.subject}]` : c.kind;
+    const p = (c.p_ok == null || Number.isNaN(Number(c.p_ok))) ? "" : ` ${Number(c.p_ok).toFixed(2)}`;
+    return name + p;
+  });
+  if (row.retried) bits.push("retried");
+  return bits.length ? `<div class="muted checks">${esc(bits.join(" · "))}</div>` : "";
+}
+
 function paint(state) {
   STATE = state || {};
   hideTyping();
@@ -116,8 +128,8 @@ function paint(state) {
   tape.innerHTML = rows.length ? rows.map((row) =>
     `<div class="row"><span class="tag ${esc(row.outcome)}">${esc(row.outcome)}</span>
      <strong>${esc(row.tool)}</strong> · ${esc(row.source)} · ${esc(row.total_ms)}ms
-     <div class="muted">${esc(row.reason)}</div></div>`
-  ).join("") : `<p class="muted">Every ALLOW / CLARIFY / REQUIRE_APPROVAL / BLOCK lands here.</p>`;
+     <div class="muted">${esc(row.reason)}</div>${checksHtml(row)}</div>`
+  ).join("") : `<p class="muted">Tool gates and handbook evidence (relevance / sufficiency) land here.</p>`;
 
   const pending = STATE.pending || [];
   document.getElementById("desk").innerHTML = pending.length

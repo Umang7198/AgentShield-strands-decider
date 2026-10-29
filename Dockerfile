@@ -5,6 +5,9 @@
 #
 #   docker compose up --build
 #   open http://127.0.0.1:8080/
+#
+# Pip runs once, keyed only on pyproject.toml. App files are copied afterward
+# with --chown so a src/frontend change does not reinstall wheels.
 
 FROM python:3.12-slim-bookworm
 
@@ -13,21 +16,23 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=120 \
     APP_HOST=0.0.0.0 \
     APP_PORT=8080 \
     FAKE_DECIDER=1 \
     DATABASE_URL=sqlite:////data/agentshield.db
 
 COPY pyproject.toml ./
-COPY src ./src
-COPY frontend ./frontend
-COPY policies ./policies
-COPY app.py ./
-
-RUN pip install --no-cache-dir -e ".[strands]" \
+RUN mkdir -p src/agentshield \
+    && printf '"""stub for docker dep cache"""\n' > src/agentshield/__init__.py \
+    && pip install --no-cache-dir --retries 5 -e ".[strands]" \
     && useradd --create-home --uid 1000 appuser \
-    && mkdir -p /data \
-    && chown -R appuser:appuser /app /data
+    && mkdir -p /data
+
+COPY --chown=appuser:appuser src ./src
+COPY --chown=appuser:appuser frontend ./frontend
+COPY --chown=appuser:appuser policies ./policies
+COPY --chown=appuser:appuser app.py ./
 
 USER appuser
 VOLUME ["/data"]

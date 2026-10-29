@@ -11,9 +11,16 @@ import importlib.util
 import logging
 import os
 import re
+from collections.abc import Callable
 
 from agentshield.decider.checker import DeciderChecker
-from agentshield.rag import HashEmbedder, PolicyRag, SentenceTransformerEmbedder, build_index
+from agentshield.rag import (
+    HashEmbedder,
+    PolicyRag,
+    RagAnswer,
+    SentenceTransformerEmbedder,
+    build_index,
+)
 from agentshield.rag.embedder import Embedder
 
 log = logging.getLogger(__name__)
@@ -104,7 +111,11 @@ def _want_chroma() -> bool:
     return _importable("chromadb")
 
 
-def build_handbook_rag(checker: DeciderChecker) -> PolicyRag:
+def build_handbook_rag(
+    checker: DeciderChecker,
+    *,
+    on_answer: Callable[[RagAnswer], None] | None = None,
+) -> PolicyRag:
     embedder, use_chroma, label = select_rag_backend()
     try:
         index = build_index(embedder=embedder, use_chroma=use_chroma)
@@ -115,4 +126,4 @@ def build_handbook_rag(checker: DeciderChecker) -> PolicyRag:
     log.info("handbook RAG backend: %s", label)
     if not force_hash():
         print(f"  [rag] handbook backend: {label}", flush=True)
-    return PolicyRag(index, checker)
+    return PolicyRag(index, checker, on_answer=on_answer)

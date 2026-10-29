@@ -19,6 +19,7 @@ from agentshield.policy.engine import PolicyEngine
 from agentshield.policy.facts import FactMap
 from agentshield.policy.loader import load_policy
 from agentshield.policy.session import SessionState
+from agentshield.rag import RagAnswer
 from agentshield.shophelp.handbook_rag import build_handbook_rag
 from agentshield.shophelp.store import ShopHelpCatalogue, ShopHelpStore
 from agentshield.shophelp.tools import bind_tools
@@ -76,6 +77,7 @@ def build_shophelp(
     store: ShopHelpCatalogue | None = None,
     sinks: Sequence[AuditSink] = (),
     on_verdict: Callable[[Verdict], None] | None = None,
+    on_rag: Callable[[RagAnswer], None] | None = None,
     approvals: ApprovalDesk | None = None,
 ) -> ShopHelpApp:
     """A gated ShopHelp agent. ``model`` is any Strands model (live or scripted)."""
@@ -97,7 +99,7 @@ def build_shophelp(
     )
     agent = Agent(
         model=model,
-        tools=bind_tools(store, rag=build_handbook_rag(checker)),
+        tools=bind_tools(store, rag=build_handbook_rag(checker, on_answer=on_rag)),
         interventions=[handler],
         system_prompt=SYSTEM_PROMPT,
         callback_handler=None,

@@ -5,7 +5,13 @@ from agentshield.shophelp.runtime import SCENES, ShopHelpRuntime
 from agentshield.shophelp.world import STORE_NAME
 from tests.fakes import ScriptedModel
 
-GOOD = {"arg:*": 0.95, "consent": 0.95, "claim": 0.95}
+GOOD = {
+    "arg:*": 0.95,
+    "consent": 0.95,
+    "claim": 0.95,
+    "relevance": 0.91,
+    "sufficiency": 0.88,
+}
 
 
 def make(
@@ -72,6 +78,34 @@ def test_chat_while_paused_does_not_resume_with_a_string() -> None:
     assert again["paused"] is True
     assert runtime.app.store.refunds == []
     assert "Approve or deny" in str(again["reply"])
+
+
+def test_handbook_lookup_appends_rag_evidence_to_the_tape() -> None:
+    runtime = make(
+        [("lookup_handbook", {"question": "How long is the return window?"})],
+        final="You have 14 days from delivery.",
+    )
+    state = runtime.chat("How long do I have to return a kettle?")
+    tools = [row["tool"] for row in state["tape"]]
+    assert "lookup_handbook" in tools
+    rag = next(row for row in state["tape"] if row["tool"] == "handbook_evidence")
+    assert rag["source"] == "rag"
+    assert rag["outcome"] == Outcome.ALLOW.value
+    kinds = {c["kind"] for c in rag["checks"]}
+    assert kinds == {"relevance", "sufficiency"}
+    assert rag["retried"] is False
+
+
+def test_handbook_abstain_shows_clarify_on_the_tape() -> None:
+    runtime = make(
+        [("lookup_handbook", {"question": "What is GDPR delete?"})],
+        script={**GOOD, "relevance": 0.12, "sufficiency": 0.10, "claim": 0.95},
+        final="I do not have enough handbook evidence.",
+    )
+    state = runtime.chat("What is the GDPR delete process in the handbook?")
+    rag = next(row for row in state["tape"] if row["tool"] == "handbook_evidence")
+    assert rag["outcome"] == Outcome.CLARIFY.value
+    assert rag["retried"] is True
 
 
 def test_supported_claim_is_not_flagged() -> None:

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
@@ -36,6 +37,7 @@ class RagAnswer(BaseModel):
     reason: str
     context: str = ""
     question_set: str = RAG_QUESTION_SET
+    total_ms: float = 0.0
 
 
 class PolicyRag:
@@ -47,22 +49,25 @@ class PolicyRag:
         k: int = 4,
         min_relevance: float = 0.55,
         min_sufficient: float = 0.55,
+        on_answer: Callable[[RagAnswer], None] | None = None,
     ) -> None:
         self._index = index
         self._checker = checker
         self._k = k
         self._min_relevance = min_relevance
         self._min_sufficient = min_sufficient
+        self._on_answer = on_answer
 
     async def answer(self, question: str) -> RagAnswer:
+        started = time.perf_counter()
         first = self._index.search(question, k=self._k)
         judged = await self._judge(question, first)
         if judged.action is RagAction.GENERATE:
-            return judged
+            return self._finish(judged, started)
         retry_query = f"{question} Hearth & Cable return shipping refund policy"
         second = self._index.search(retry_query, k=self._k * 2)
         retried = await self._judge(question, second)
-        return retried.model_copy(
+        result = retried.model_copy(
             update={
                 "retried": True,
                 "reason": retried.reason
@@ -70,6 +75,13 @@ class PolicyRag:
                 else f"retry still insufficient ({retried.reason})",
             }
         )
+        return self._finish(result, started)
+
+    def _finish(self, answer: RagAnswer, started: float) -> RagAnswer:
+        result = answer.model_copy(update={"total_ms": (time.perf_counter() - started) * 1000})
+        if self._on_answer is not None:
+            self._on_answer(result)
+        return result
 
     async def _judge(self, question: str, ranked: Sequence[tuple[Passage, float]]) -> RagAnswer:
         passages = tuple(p for p, _ in ranked)

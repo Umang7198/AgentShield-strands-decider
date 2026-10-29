@@ -35,12 +35,19 @@ class _FlipClient:
 
 
 async def test_rag_generates_when_decider_says_enough() -> None:
-    rag = PolicyRag(build_index(), DeciderChecker(FakeDeciderClient({"*": 0.92})))
+    seen: list[object] = []
+    rag = PolicyRag(
+        build_index(),
+        DeciderChecker(FakeDeciderClient({"*": 0.92})),
+        on_answer=seen.append,
+    )
     answer = await rag.answer("What is the return window at Hearth & Cable?")
     assert answer.action is RagAction.GENERATE
     assert answer.retried is False
     assert answer.passages
     assert answer.p_relevance is not None and answer.p_relevance >= 0.55
+    assert answer.total_ms >= 0
+    assert seen == [answer]
 
 
 async def test_rag_retries_once_then_generates() -> None:
